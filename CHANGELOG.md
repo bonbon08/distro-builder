@@ -1,5 +1,14 @@
 # Änderungen
 
+## Unreleased
+
+- Komplett in Rust neu geschrieben (vorher Python/PyGObject): Cargo-Workspace mit vier Crates
+  (`distro-builder-core` als gemeinsame Bibliothek für Konfiguration/Profil-Erzeugung/Downloads,
+  `distro-builder` als GTK4/libadwaita-Oberfläche, `distro-installer` und `distro-installer-backend`
+  als grafischer Installer samt Root-Backend im Live-System). Funktionsumfang unverändert.
+- Build/Install laufen jetzt über `cargo build --workspace` statt `python3`/PyGObject; `PKGBUILD` und
+  CI entsprechend angepasst.
+
 ## 0.1.0 – 2026-10-27
 
 Erste Veröffentlichung.

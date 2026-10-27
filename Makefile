@@ -1,15 +1,18 @@
 PREFIX ?= /usr
 DESTDIR ?=
 BINDIR = $(PREFIX)/bin
-LIBDIR = $(PREFIX)/share/distro-builder
+LIBDIR = $(PREFIX)/lib/distro-builder/bin
+CARGO_FLAGS ?= --release --locked
 
-install:
-	install -dm755 $(DESTDIR)$(LIBDIR)/distrobuilder/templates
-	install -Dm644 distrobuilder/*.py $(DESTDIR)$(LIBDIR)/distrobuilder/
-	install -Dm644 distrobuilder/templates/* $(DESTDIR)$(LIBDIR)/distrobuilder/templates/
+build:
+	cargo build $(CARGO_FLAGS) --workspace
+
+install: build
 	install -dm755 $(DESTDIR)$(BINDIR)
-	sed 's#/usr/share/distro-builder#$(LIBDIR)#' distro-builder > $(DESTDIR)$(BINDIR)/distro-builder
-	chmod 755 $(DESTDIR)$(BINDIR)/distro-builder
+	install -Dm755 target/release/distro-builder $(DESTDIR)$(BINDIR)/distro-builder
+	install -dm755 $(DESTDIR)$(LIBDIR)
+	install -Dm755 target/release/distro-installer $(DESTDIR)$(LIBDIR)/distro-installer
+	install -Dm755 target/release/distro-installer-backend $(DESTDIR)$(LIBDIR)/distro-installer-backend
 	install -Dm644 io.github.bonbon08.DistroBuilder.desktop $(DESTDIR)$(PREFIX)/share/applications/io.github.bonbon08.DistroBuilder.desktop
 	install -Dm644 LICENSE $(DESTDIR)$(PREFIX)/share/licenses/distro-builder/LICENSE
 	install -Dm644 README.md $(DESTDIR)$(PREFIX)/share/doc/distro-builder/README.md
@@ -23,6 +26,6 @@ uninstall:
 	       $(DESTDIR)$(PREFIX)/share/doc/distro-builder
 
 check:
-	python3 -m unittest discover -s tests -v
+	cargo test $(CARGO_FLAGS) --workspace
 
-.PHONY: install uninstall check
+.PHONY: build install uninstall check

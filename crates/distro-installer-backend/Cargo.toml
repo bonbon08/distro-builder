@@ -1,0 +1,16 @@
+[package]
+name = "distro-installer-backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Root-privileged install backend used by distro-installer"
+
+[[bin]]
+name = "distro-installer-backend"
+path = "src/main.rs"
+
+[dependencies]
+distro-builder-core = { path = "../distro-builder-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
