@@ -99,7 +99,8 @@ fn template(name: &str, cfg: &Config) -> String {
         "set-wallpaper.sh" => include_str!("../templates/set-wallpaper.sh"),
         other => panic!("unknown template {other}"),
     };
-    text.replace("@@ID@@", &cfg.general.id).replace("@@NAME@@", &cfg.general.name)
+    text.replace("@@ID@@", &cfg.general.id)
+        .replace("@@NAME@@", &cfg.general.name)
 }
 
 fn symlink(target: &str, link: &Path) -> std::io::Result<()> {
@@ -125,7 +126,10 @@ fn remove_path(path: &Path) {
 /// Konvertiert ein Bild nach PNG (optional skaliert). Fällt auf Kopieren zurück,
 /// wenn das Format nicht dekodiert werden kann.
 fn save_image(src: &Path, dest: &Path, max_size: Option<u32>, exact: Option<(u32, u32)>) -> bool {
-    let decoded = image::ImageReader::open(src).and_then(|r| r.with_guessed_format()).ok().and_then(|r| r.decode().ok());
+    let decoded = image::ImageReader::open(src)
+        .and_then(|r| r.with_guessed_format())
+        .ok()
+        .and_then(|r| r.decode().ok());
     let Some(img) = decoded else {
         if exact.is_some() {
             return false;
@@ -154,15 +158,34 @@ fn save_image(src: &Path, dest: &Path, max_size: Option<u32>, exact: Option<(u32
     if let Some(parent) = dest.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    resized.save_with_format(dest, image::ImageFormat::Png).is_ok()
+    resized
+        .save_with_format(dest, image::ImageFormat::Png)
+        .is_ok()
 }
 
 fn console_keymaps() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("de", "de-latin1"), ("at", "de-latin1"), ("ch", "de_CH-latin1"), ("gb", "uk"), ("us", "us"),
-        ("fr", "fr-latin1"), ("es", "es"), ("it", "it"), ("nl", "nl"), ("pl", "pl"), ("se", "sv-latin1"),
-        ("no", "no-latin1"), ("dk", "dk-latin1"), ("fi", "fi"), ("pt", "pt-latin1"), ("ru", "ru"),
-        ("tr", "trq"), ("cz", "cz"), ("hu", "hu"), ("be", "be-latin1"), ("br", "br-abnt2"),
+        ("de", "de-latin1"),
+        ("at", "de-latin1"),
+        ("ch", "de_CH-latin1"),
+        ("gb", "uk"),
+        ("us", "us"),
+        ("fr", "fr-latin1"),
+        ("es", "es"),
+        ("it", "it"),
+        ("nl", "nl"),
+        ("pl", "pl"),
+        ("se", "sv-latin1"),
+        ("no", "no-latin1"),
+        ("dk", "dk-latin1"),
+        ("fi", "fi"),
+        ("pt", "pt-latin1"),
+        ("ru", "ru"),
+        ("tr", "trq"),
+        ("cz", "cz"),
+        ("hu", "hu"),
+        ("be", "be-latin1"),
+        ("br", "br-abnt2"),
     ]
 }
 
@@ -182,7 +205,10 @@ pub fn os_release(cfg: &Config) -> String {
     let (g, b) = (&cfg.general, &cfg.branding);
     let mut lines = vec![
         format!("NAME={}", quote_str(&g.name)),
-        format!("PRETTY_NAME={}", quote_str(&format!("{} {}", g.name, g.version))),
+        format!(
+            "PRETTY_NAME={}",
+            quote_str(&format!("{} {}", g.name, g.version))
+        ),
         format!("ID={}", g.id),
         "ID_LIKE=arch".to_string(),
         "BUILD_ID=rolling".to_string(),
@@ -190,7 +216,11 @@ pub fn os_release(cfg: &Config) -> String {
         format!("ANSI_COLOR={}", quote_str(&hex_to_ansi(&b.color))),
         format!("LOGO={}", g.id),
     ];
-    for (val, field) in [(&g.homepage, "HOME_URL"), (&g.support_url, "SUPPORT_URL"), (&g.bug_url, "BUG_REPORT_URL")] {
+    for (val, field) in [
+        (&g.homepage, "HOME_URL"),
+        (&g.support_url, "SUPPORT_URL"),
+        (&g.bug_url, "BUG_REPORT_URL"),
+    ] {
         if !val.is_empty() {
             lines.push(format!("{field}={}", quote_str(val)));
         }
@@ -228,21 +258,43 @@ fn build_overlay(cfg: &Config, root: &Path) -> std::io::Result<Vec<String>> {
     let mut execs = Vec::new();
 
     write_file(&share.join("os-release"), &os_release(cfg))?;
-    write_file(&root.join("usr/local/bin").join(format!("{gid}-apply-branding")), &template("apply-branding.sh", cfg))?;
+    write_file(
+        &root
+            .join("usr/local/bin")
+            .join(format!("{gid}-apply-branding")),
+        &template("apply-branding.sh", cfg),
+    )?;
     execs.push(format!("/usr/local/bin/{gid}-apply-branding"));
-    write_file(&root.join("etc/pacman.d/hooks").join(format!("90-{gid}-branding.hook")), &template("branding.hook", cfg))?;
+    write_file(
+        &root
+            .join("etc/pacman.d/hooks")
+            .join(format!("90-{gid}-branding.hook")),
+        &template("branding.hook", cfg),
+    )?;
 
     if !b.logo.is_empty() {
         let logo_src = Path::new(&b.logo);
         save_image(logo_src, &share.join("logo.png"), Some(512), None);
         fs::create_dir_all(root.join("usr/share/pixmaps"))?;
-        let _ = fs::copy(share.join("logo.png"), root.join("usr/share/pixmaps").join(format!("{gid}.png")));
+        let _ = fs::copy(
+            share.join("logo.png"),
+            root.join("usr/share/pixmaps").join(format!("{gid}.png")),
+        );
     }
     if !b.ascii_logo.trim().is_empty() {
-        write_file(&share.join("logo.txt"), &(b.ascii_logo.trim_end_matches('\n').to_string() + "\n"))?;
+        write_file(
+            &share.join("logo.txt"),
+            &(b.ascii_logo.trim_end_matches('\n').to_string() + "\n"),
+        )?;
     }
-    write_file(&root.join("etc/xdg/fastfetch/config.jsonc"), &fastfetch_config(cfg))?;
-    write_file(&root.join("usr/local/bin/neofetch"), "#!/bin/sh\nexec fastfetch \"$@\"\n")?;
+    write_file(
+        &root.join("etc/xdg/fastfetch/config.jsonc"),
+        &fastfetch_config(cfg),
+    )?;
+    write_file(
+        &root.join("usr/local/bin/neofetch"),
+        "#!/bin/sh\nexec fastfetch \"$@\"\n",
+    )?;
     execs.push("/usr/local/bin/neofetch".to_string());
     if b.logo_mode == "image" && !b.logo.is_empty() {
         write_file(
@@ -255,12 +307,26 @@ fn build_overlay(cfg: &Config, root: &Path) -> std::io::Result<Vec<String>> {
     }
 
     if !b.wallpaper.is_empty() {
-        let ext = Path::new(&b.wallpaper).extension().map(|e| format!(".{}", e.to_string_lossy().to_lowercase())).unwrap_or_else(|| ".png".to_string());
+        let ext = Path::new(&b.wallpaper)
+            .extension()
+            .map(|e| format!(".{}", e.to_string_lossy().to_lowercase()))
+            .unwrap_or_else(|| ".png".to_string());
         let _ = fs::copy(&b.wallpaper, share.join(format!("wallpaper{ext}")));
         fs::create_dir_all(root.join("usr/share/backgrounds"))?;
-        symlink(&format!("/usr/share/{gid}/wallpaper{ext}"), &root.join("usr/share/backgrounds").join(format!("{gid}{ext}")))?;
-        let script = template("set-wallpaper.sh", cfg).replace("@@WALLPAPER@@", &format!("/usr/share/{gid}/wallpaper{ext}"));
-        write_file(&root.join("usr/local/bin").join(format!("{gid}-set-wallpaper")), &script)?;
+        symlink(
+            &format!("/usr/share/{gid}/wallpaper{ext}"),
+            &root
+                .join("usr/share/backgrounds")
+                .join(format!("{gid}{ext}")),
+        )?;
+        let script = template("set-wallpaper.sh", cfg)
+            .replace("@@WALLPAPER@@", &format!("/usr/share/{gid}/wallpaper{ext}"));
+        write_file(
+            &root
+                .join("usr/local/bin")
+                .join(format!("{gid}-set-wallpaper")),
+            &script,
+        )?;
         execs.push(format!("/usr/local/bin/{gid}-set-wallpaper"));
         write_file(
             &root.join("etc/xdg/autostart").join(format!("{gid}-wallpaper.desktop")),
@@ -272,14 +338,23 @@ fn build_overlay(cfg: &Config, root: &Path) -> std::io::Result<Vec<String>> {
     }
 
     if !b.motd.trim().is_empty() {
-        write_file(&root.join("etc/motd"), &(b.motd.trim_end_matches('\n').to_string() + "\n"))?;
+        write_file(
+            &root.join("etc/motd"),
+            &(b.motd.trim_end_matches('\n').to_string() + "\n"),
+        )?;
     }
 
     if C::desktop_info(cfg).display_manager == Some("lightdm") {
-        write_file(&root.join("etc/lightdm/lightdm.conf.d/10-greeter.conf"), "[Seat:*]\ngreeter-session=lightdm-gtk-greeter\n")?;
+        write_file(
+            &root.join("etc/lightdm/lightdm.conf.d/10-greeter.conf"),
+            "[Seat:*]\ngreeter-session=lightdm-gtk-greeter\n",
+        )?;
     }
     if cfg.installer.zram {
-        write_file(&root.join("etc/systemd/zram-generator.conf"), "[zram0]\nzram-size = min(ram / 2, 8192)\ncompression-algorithm = zstd\n")?;
+        write_file(
+            &root.join("etc/systemd/zram-generator.conf"),
+            "[zram0]\nzram-size = min(ram / 2, 8192)\ncompression-algorithm = zstd\n",
+        )?;
     }
     execs.extend(build_ai_containers(cfg, root)?);
     Ok(execs)
@@ -293,28 +368,49 @@ fn build_ai_containers(cfg: &Config, root: &Path) -> std::io::Result<Vec<String>
     let gid = &g.id;
     let mut execs = Vec::new();
     if ai.ollama {
-        let mut conf = vec!["[Service]".to_string(), format!("Environment=\"OLLAMA_MODELS={OLLAMA_MODELS_DIR}\"")];
+        let mut conf = vec![
+            "[Service]".to_string(),
+            format!("Environment=\"OLLAMA_MODELS={OLLAMA_MODELS_DIR}\""),
+        ];
         if ai.expose {
             conf.push("Environment=\"OLLAMA_HOST=0.0.0.0:11434\"".to_string());
         }
         conf.push(format!(
             "ExecStartPre=+/bin/sh -c 'mkdir -p {OLLAMA_MODELS_DIR} && find {OLLAMA_MODELS_DIR} \\( -type d -o -path \"*/manifests/*\" \\) ! -user ollama -exec chown ollama:ollama {{}} +'"
         ));
-        write_file(&root.join("etc/systemd/system/ollama.service.d").join(format!("10-{gid}.conf")), &(conf.join("\n") + "\n"))?;
+        write_file(
+            &root
+                .join("etc/systemd/system/ollama.service.d")
+                .join(format!("10-{gid}.conf")),
+            &(conf.join("\n") + "\n"),
+        )?;
     }
 
     let engine = ct.engine.as_str();
     if engine == "none" {
         return Ok(execs);
     }
-    let tool = if engine == "docker" { "/usr/bin/docker" } else { "/usr/bin/podman" };
-    let dep = if engine == "docker" { "docker.service" } else { "network-online.target" };
+    let tool = if engine == "docker" {
+        "/usr/bin/docker"
+    } else {
+        "/usr/bin/podman"
+    };
+    let dep = if engine == "docker" {
+        "docker.service"
+    } else {
+        "network-online.target"
+    };
     let images = C::container_images(cfg);
     if ct.preload && !images.is_empty() {
         let script = format!(
             "#!/bin/sh\n# Importiert die in die ISO gepackten Container-Images (einmalig)\nDIR=/var/lib/{gid}/container-images\nfor f in \"$DIR\"/*.tar; do\n  [ -e \"$f\" ] || continue\n  echo \"Importiere $f\"\n  {tool} load -i \"$f\" && rm -f \"$f\"\ndone\nrmdir \"$DIR\" 2>/dev/null\nexit 0\n"
         );
-        write_file(&root.join("usr/local/bin").join(format!("{gid}-container-import")), &script)?;
+        write_file(
+            &root
+                .join("usr/local/bin")
+                .join(format!("{gid}-container-import")),
+            &script,
+        )?;
         execs.push(format!("/usr/local/bin/{gid}-container-import"));
         write_file(
             &root.join("etc/systemd/system").join(format!("{gid}-container-import.service")),
@@ -325,8 +421,16 @@ fn build_ai_containers(cfg: &Config, root: &Path) -> std::io::Result<Vec<String>
         )?;
     }
     if !ct.stacks.is_empty() {
-        let up = if engine == "docker" { format!("{tool} compose up -d --remove-orphans") } else { "/usr/bin/podman-compose up -d".to_string() };
-        let down = if engine == "docker" { format!("{tool} compose down") } else { "/usr/bin/podman-compose down".to_string() };
+        let up = if engine == "docker" {
+            format!("{tool} compose up -d --remove-orphans")
+        } else {
+            "/usr/bin/podman-compose up -d".to_string()
+        };
+        let down = if engine == "docker" {
+            format!("{tool} compose down")
+        } else {
+            "/usr/bin/podman-compose down".to_string()
+        };
         write_file(
             &root.join("etc/systemd/system").join(format!("{gid}-compose@.service")),
             &format!(
@@ -335,11 +439,30 @@ fn build_ai_containers(cfg: &Config, root: &Path) -> std::io::Result<Vec<String>
             ),
         )?;
         for st in &ct.stacks {
-            write_file(&root.join("etc").join(gid).join("compose").join(&st.name).join("compose.yaml"), &(st.compose.trim_end().to_string() + "\n"))?;
+            write_file(
+                &root
+                    .join("etc")
+                    .join(gid)
+                    .join("compose")
+                    .join(&st.name)
+                    .join("compose.yaml"),
+                &(st.compose.trim_end().to_string() + "\n"),
+            )?;
             let url_re = Regex::new(r"https?://[^\s)]+").unwrap();
-            let url = if !st.url.is_empty() { st.url.clone() } else { url_re.find(&st.compose).map(|m| m.as_str().to_string()).unwrap_or_default() };
+            let url = if !st.url.is_empty() {
+                st.url.clone()
+            } else {
+                url_re
+                    .find(&st.compose)
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_default()
+            };
             if !url.is_empty() {
-                let title = if st.title.is_empty() { &st.name } else { &st.title };
+                let title = if st.title.is_empty() {
+                    &st.name
+                } else {
+                    &st.title
+                };
                 write_file(
                     &root.join("usr/share/applications").join(format!("{gid}-{}.desktop", st.name)),
                     &format!(
@@ -362,7 +485,12 @@ fn compose_services(cfg: &Config) -> Vec<String> {
     if ct.preload && !C::container_images(cfg).is_empty() {
         svcs.push(format!("{gid}-container-import.service"));
     }
-    svcs.extend(ct.stacks.iter().filter(|s| s.autostart).map(|s| format!("{gid}-compose@{}.service", s.name)));
+    svcs.extend(
+        ct.stacks
+            .iter()
+            .filter(|s| s.autostart)
+            .map(|s| format!("{gid}-compose@{}.service", s.name)),
+    );
     if ct.engine == "podman" && !ct.stacks.is_empty() {
         svcs.push("podman-restart.service".to_string());
     }
@@ -372,7 +500,12 @@ fn compose_services(cfg: &Config) -> Vec<String> {
 /// Dateien aus releng, die im installierten System bleiben sollen.
 fn releng_keep() -> HashSet<&'static str> {
     [
-        "etc/resolv.conf", "etc/localtime", "etc/passwd", "etc/shadow", "etc/hostname", "etc/locale.conf",
+        "etc/resolv.conf",
+        "etc/localtime",
+        "etc/passwd",
+        "etc/shadow",
+        "etc/hostname",
+        "etc/locale.conf",
         "etc/systemd/system/dbus-org.freedesktop.resolve1.service",
         "etc/systemd/system/dbus-org.freedesktop.timesync1.service",
         "etc/systemd/system/multi-user.target.wants/systemd-resolved.service",
@@ -383,12 +516,23 @@ fn releng_keep() -> HashSet<&'static str> {
 }
 
 /// Pfade, die der Installer nach dem Offline-Kopieren entfernt (Live-Konfiguration).
-fn live_only_paths(releng_air: &Path, cfg: &Config, overlay_files: &HashSet<String>) -> (Vec<String>, Vec<String>) {
+fn live_only_paths(
+    releng_air: &Path,
+    cfg: &Config,
+    overlay_files: &HashSet<String>,
+) -> (Vec<String>, Vec<String>) {
     let gid = &cfg.general.id;
     let keep = releng_keep();
     let mut files = Vec::new();
     let mut dirs = Vec::new();
-    walk_releng(releng_air, releng_air, &keep, overlay_files, &mut files, &mut dirs);
+    walk_releng(
+        releng_air,
+        releng_air,
+        &keep,
+        overlay_files,
+        &mut files,
+        &mut dirs,
+    );
     files.extend([
         "/etc/systemd/system/live-setup.service".to_string(),
         "/etc/systemd/system/multi-user.target.wants/live-setup.service".to_string(),
@@ -406,9 +550,17 @@ fn live_only_paths(releng_air: &Path, cfg: &Config, overlay_files: &HashSet<Stri
         "/root/.zshrc.local".to_string(),
         "/etc/sudoers.d/00-live".to_string(),
     ]);
-    let mut files: Vec<String> = files.into_iter().collect::<HashSet<_>>().into_iter().collect();
+    let mut files: Vec<String> = files
+        .into_iter()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
     files.sort();
-    let mut dirs: Vec<String> = dirs.into_iter().collect::<HashSet<_>>().into_iter().collect();
+    let mut dirs: Vec<String> = dirs
+        .into_iter()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
     dirs.sort();
     (files, dirs)
 }
@@ -421,15 +573,23 @@ fn walk_releng(
     files: &mut Vec<String>,
     dirs: &mut Vec<String>,
 ) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     let rel_dir = dir.strip_prefix(base).unwrap_or(Path::new(""));
     if !rel_dir.as_os_str().is_empty() {
         dirs.push(format!("/{}", rel_dir.to_string_lossy()));
     }
     for entry in entries.flatten() {
         let path = entry.path();
-        let Ok(meta) = fs::symlink_metadata(&path) else { continue };
-        let rel = path.strip_prefix(base).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        let rel = path
+            .strip_prefix(base)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
         if meta.file_type().is_symlink() {
             if !keep.contains(rel.as_str()) && !overlay_files.contains(&rel) {
                 files.push(format!("/{rel}"));
@@ -463,7 +623,14 @@ pub fn pacman_conf(cfg: &Config) -> String {
     ];
     for repo in r.custom.iter().filter(|r| r.first) {
         out.push(format!("[{}]", repo.name));
-        out.push(format!("SigLevel = {}", if repo.siglevel.is_empty() { "Optional TrustAll" } else { &repo.siglevel }));
+        out.push(format!(
+            "SigLevel = {}",
+            if repo.siglevel.is_empty() {
+                "Optional TrustAll"
+            } else {
+                &repo.siglevel
+            }
+        ));
         out.push(format!("Server = {}", repo.server));
         out.push(String::new());
     }
@@ -482,7 +649,14 @@ pub fn pacman_conf(cfg: &Config) -> String {
     }
     for repo in r.custom.iter().filter(|r| !r.first) {
         out.push(format!("[{}]", repo.name));
-        out.push(format!("SigLevel = {}", if repo.siglevel.is_empty() { "Optional TrustAll" } else { &repo.siglevel }));
+        out.push(format!(
+            "SigLevel = {}",
+            if repo.siglevel.is_empty() {
+                "Optional TrustAll"
+            } else {
+                &repo.siglevel
+            }
+        ));
         out.push(format!("Server = {}", repo.server));
         out.push(String::new());
     }
@@ -502,7 +676,11 @@ pub fn installer_json(cfg: &Config, live_files: &[String], live_dirs: &[String])
         name: g.name.clone(),
         id: g.id.clone(),
         hostname: g.hostname.clone(),
-        logo: if !cfg.branding.logo.is_empty() { format!("/usr/share/{}/logo.png", g.id) } else { String::new() },
+        logo: if !cfg.branding.logo.is_empty() {
+            format!("/usr/share/{}/logo.png", g.id)
+        } else {
+            String::new()
+        },
         welcome: i.welcome.clone(),
         packages: C::target_packages(cfg),
         services: {
@@ -539,12 +717,19 @@ fn rebrand_boot(profile: &Path, name: &str) -> std::io::Result<()> {
             continue;
         }
         for entry in walkdir(&dir) {
-            if !matches!(entry.extension().and_then(|e| e.to_str()), Some("cfg") | Some("conf")) {
+            if !matches!(
+                entry.extension().and_then(|e| e.to_str()),
+                Some("cfg") | Some("conf")
+            ) {
                 continue;
             }
-            let Ok(text) = fs::read_to_string(&entry) else { continue };
+            let Ok(text) = fs::read_to_string(&entry) else {
+                continue;
+            };
             let mut new = text.replace("Arch Linux install medium", &format!("{name} Live"));
-            new = new.replace("install Arch Linux", &format!("install {name}")).replace("Arch Linux", name);
+            new = new
+                .replace("install Arch Linux", &format!("install {name}"))
+                .replace("Arch Linux", name);
             if new != text {
                 fs::write(&entry, new)?;
             }
@@ -555,7 +740,9 @@ fn rebrand_boot(profile: &Path, name: &str) -> std::io::Result<()> {
 
 fn walkdir(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    let Ok(entries) = fs::read_dir(dir) else { return out };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return out;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
@@ -567,7 +754,11 @@ fn walkdir(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-fn edit_profiledef(cfg: &Config, profile: &Path, perms: &[(String, String)]) -> std::io::Result<()> {
+fn edit_profiledef(
+    cfg: &Config,
+    profile: &Path,
+    perms: &[(String, String)],
+) -> std::io::Result<()> {
     let g = &cfg.general;
     let p = profile.join("profiledef.sh");
     let mut text = fs::read_to_string(&p)?;
@@ -576,9 +767,22 @@ fn edit_profiledef(cfg: &Config, profile: &Path, perms: &[(String, String)]) -> 
     label.truncate(22);
     let repl: Vec<(&str, String)> = vec![
         ("iso_name", quote_str(&g.id)),
-        ("iso_label", format!("\"{label}_$(date --date=\"@${{SOURCE_DATE_EPOCH:-$(date +%s)}}\" +%Y%m)\"")),
-        ("iso_publisher", quote_str(if g.publisher.is_empty() { &g.name } else { &g.publisher })),
-        ("iso_application", quote_str(&format!("{} Live/Installations-Medium", g.name))),
+        (
+            "iso_label",
+            format!("\"{label}_$(date --date=\"@${{SOURCE_DATE_EPOCH:-$(date +%s)}}\" +%Y%m)\""),
+        ),
+        (
+            "iso_publisher",
+            quote_str(if g.publisher.is_empty() {
+                &g.name
+            } else {
+                &g.publisher
+            }),
+        ),
+        (
+            "iso_application",
+            quote_str(&format!("{} Live/Installations-Medium", g.name)),
+        ),
         (
             "iso_version",
             format!(
@@ -592,13 +796,16 @@ fn edit_profiledef(cfg: &Config, profile: &Path, perms: &[(String, String)]) -> 
     for (key, val) in &repl {
         let line_re = Regex::new(&format!(r"(?m)^{key}=.*$")).unwrap();
         let replacement = format!("{key}={val}");
-        text = line_re.replace(&text, |_: &regex::Captures| replacement.clone()).into_owned();
+        text = line_re
+            .replace(&text, |_: &regex::Captures| replacement.clone())
+            .into_owned();
     }
     if cfg.build.compression == "zstd" {
         let re = Regex::new(r"(?m)^airootfs_image_tool_options=.*$").unwrap();
         text = re
             .replace(&text, |_: &regex::Captures| {
-                "airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '15' '-b' '1M')".to_string()
+                "airootfs_image_tool_options=('-comp' 'zstd' '-Xcompression-level' '15' '-b' '1M')"
+                    .to_string()
             })
             .into_owned();
     }
@@ -684,7 +891,9 @@ pub fn generate(
         return Err(ProfileError::Validation(errors.join("\n")));
     }
     if !releng.is_dir() {
-        return Err(ProfileError::MissingReleng(releng.to_string_lossy().into_owned()));
+        return Err(ProfileError::MissingReleng(
+            releng.to_string_lossy().into_owned(),
+        ));
     }
 
     let g = &cfg.general;
@@ -724,7 +933,10 @@ pub fn generate(
     // Branding
     write_file(&air.join("etc/hostname"), &(g.hostname.clone() + "\n"))?;
     let kb = &cfg.installer.keyboard;
-    write_file(&air.join("etc/vconsole.conf"), &format!("KEYMAP={}\n", console_keymap(kb)))?;
+    write_file(
+        &air.join("etc/vconsole.conf"),
+        &format!("KEYMAP={}\n", console_keymap(kb)),
+    )?;
     write_file(
         &air.join("etc/X11/xorg.conf.d/00-keyboard.conf"),
         &format!(
@@ -745,7 +957,12 @@ pub fn generate(
     }
     rebrand_boot(profile, &g.name)?;
     if !cfg.branding.wallpaper.is_empty() {
-        if save_image(Path::new(&cfg.branding.wallpaper), &profile.join("syslinux/splash.png"), None, Some((640, 480))) {
+        if save_image(
+            Path::new(&cfg.branding.wallpaper),
+            &profile.join("syslinux/splash.png"),
+            None,
+            Some((640, 480)),
+        ) {
             log("Bootmenü-Hintergrund ersetzt");
         }
     }
@@ -763,21 +980,52 @@ pub fn generate(
         ] {
             remove_path(&systemd.join(unit));
         }
-        symlink("/usr/lib/systemd/system/NetworkManager.service", &systemd.join("multi-user.target.wants/NetworkManager.service"))?;
-        symlink(&format!("/usr/lib/systemd/system/{dm}.service"), &systemd.join("display-manager.service"))?;
+        symlink(
+            "/usr/lib/systemd/system/NetworkManager.service",
+            &systemd.join("multi-user.target.wants/NetworkManager.service"),
+        )?;
+        symlink(
+            &format!("/usr/lib/systemd/system/{dm}.service"),
+            &systemd.join("display-manager.service"),
+        )?;
         let session = desktop.session.unwrap_or("");
         match dm {
-            "sddm" => write_file(&air.join("etc/sddm.conf.d/autologin.conf"), &format!("[Autologin]\nUser=live\nSession={session}\n"))?,
-            "gdm" => write_file(&air.join("etc/gdm/custom.conf"), "[daemon]\nAutomaticLoginEnable=True\nAutomaticLogin=live\n")?,
-            "lightdm" => write_file(&air.join("etc/lightdm/lightdm.conf.d/50-autologin.conf"), &format!("[Seat:*]\nautologin-user=live\nautologin-session={session}\n"))?,
+            "sddm" => write_file(
+                &air.join("etc/sddm.conf.d/autologin.conf"),
+                &format!("[Autologin]\nUser=live\nSession={session}\n"),
+            )?,
+            "gdm" => write_file(
+                &air.join("etc/gdm/custom.conf"),
+                "[daemon]\nAutomaticLoginEnable=True\nAutomaticLogin=live\n",
+            )?,
+            "lightdm" => write_file(
+                &air.join("etc/lightdm/lightdm.conf.d/50-autologin.conf"),
+                &format!("[Seat:*]\nautologin-user=live\nautologin-session={session}\n"),
+            )?,
             _ => {}
         }
 
-        let script = template("live-setup.sh", cfg).replace("@@FASTFETCH@@", if cfg.branding.fastfetch_on_terminal { "1" } else { "0" });
+        let script = template("live-setup.sh", cfg).replace(
+            "@@FASTFETCH@@",
+            if cfg.branding.fastfetch_on_terminal {
+                "1"
+            } else {
+                "0"
+            },
+        );
         write_file(&air.join("usr/local/bin/live-setup"), &script)?;
-        perms.push(("/usr/local/bin/live-setup".to_string(), "0:0:755".to_string()));
-        write_file(&systemd.join("live-setup.service"), &template("live-setup.service", cfg))?;
-        symlink("/etc/systemd/system/live-setup.service", &systemd.join("multi-user.target.wants/live-setup.service"))?;
+        perms.push((
+            "/usr/local/bin/live-setup".to_string(),
+            "0:0:755".to_string(),
+        ));
+        write_file(
+            &systemd.join("live-setup.service"),
+            &template("live-setup.service", cfg),
+        )?;
+        symlink(
+            "/etc/systemd/system/live-setup.service",
+            &systemd.join("multi-user.target.wants/live-setup.service"),
+        )?;
     }
 
     // Installer
@@ -788,23 +1036,49 @@ pub fn generate(
                 let lib = PathBuf::from(format!("{}{INSTALLER_LIB}", air.display()));
                 fs::create_dir_all(&lib)?;
                 fs::copy(&bins.backend, lib.join("distro-installer-backend"))?;
-                fs::set_permissions(lib.join("distro-installer-backend"), fs::Permissions::from_mode(0o755))?;
-                perms.push((format!("{INSTALLER_LIB}/distro-installer-backend"), "0:0:755".to_string()));
+                fs::set_permissions(
+                    lib.join("distro-installer-backend"),
+                    fs::Permissions::from_mode(0o755),
+                )?;
+                perms.push((
+                    format!("{INSTALLER_LIB}/distro-installer-backend"),
+                    "0:0:755".to_string(),
+                ));
                 fs::create_dir_all(air.join("usr/local/bin"))?;
                 fs::copy(&bins.gui, air.join("usr/local/bin/distro-installer"))?;
-                fs::set_permissions(air.join("usr/local/bin/distro-installer"), fs::Permissions::from_mode(0o755))?;
-                perms.push(("/usr/local/bin/distro-installer".to_string(), "0:0:755".to_string()));
+                fs::set_permissions(
+                    air.join("usr/local/bin/distro-installer"),
+                    fs::Permissions::from_mode(0o755),
+                )?;
+                perms.push((
+                    "/usr/local/bin/distro-installer".to_string(),
+                    "0:0:755".to_string(),
+                ));
 
-                let (live_files, live_dirs) = live_only_paths(&releng.join("airootfs"), cfg, &overlay_files);
-                write_file(&air.join("etc/distro-installer.json"), &installer_json(cfg, &live_files, &live_dirs))?;
-                let icon = if !cfg.branding.logo.is_empty() { gid.clone() } else { "system-software-install".to_string() };
+                let (live_files, live_dirs) =
+                    live_only_paths(&releng.join("airootfs"), cfg, &overlay_files);
+                write_file(
+                    &air.join("etc/distro-installer.json"),
+                    &installer_json(cfg, &live_files, &live_dirs),
+                )?;
+                let icon = if !cfg.branding.logo.is_empty() {
+                    gid.clone()
+                } else {
+                    "system-software-install".to_string()
+                };
                 let desktop_entry = format!(
                     "[Desktop Entry]\nType=Application\nName={} installieren\nComment={} auf der Festplatte installieren\nExec=distro-installer\nIcon={icon}\nTerminal=false\nCategories=System;\n",
                     g.name, g.name
                 );
-                write_file(&air.join("usr/share/applications/distro-installer.desktop"), &desktop_entry)?;
+                write_file(
+                    &air.join("usr/share/applications/distro-installer.desktop"),
+                    &desktop_entry,
+                )?;
                 if cfg.installer.autostart {
-                    write_file(&air.join("etc/xdg/autostart/distro-installer.desktop"), &desktop_entry)?;
+                    write_file(
+                        &air.join("etc/xdg/autostart/distro-installer.desktop"),
+                        &desktop_entry,
+                    )?;
                 }
             }
             None => {
@@ -819,13 +1093,20 @@ pub fn generate(
 
     // KI im Live-System direkt nutzbar
     if cfg.ai.ollama {
-        symlink("/usr/lib/systemd/system/ollama.service", &systemd.join("multi-user.target.wants/ollama.service"))?;
+        symlink(
+            "/usr/lib/systemd/system/ollama.service",
+            &systemd.join("multi-user.target.wants/ollama.service"),
+        )?;
         if !cfg.ai.models.is_empty() {
             log(&format!("KI-Modelle: {}", cfg.ai.models.join(", ")));
         }
     }
     if cfg.containers.engine != "none" {
-        let n_images = if cfg.containers.preload { C::container_images(cfg).len() } else { 0 };
+        let n_images = if cfg.containers.preload {
+            C::container_images(cfg).len()
+        } else {
+            0
+        };
         log(&format!(
             "Container: {}, {} Stack(s), {n_images} vorab geladene(s) Image(s)",
             cfg.containers.engine,
@@ -835,7 +1116,10 @@ pub fn generate(
 
     edit_profiledef(cfg, profile, &perms)?;
     write_file_mode(&pth.script, &build_script(cfg), 0o755)?;
-    write_file(&pth.base.join("project.json"), &serde_json::to_string_pretty(cfg).unwrap())?;
+    write_file(
+        &pth.base.join("project.json"),
+        &serde_json::to_string_pretty(cfg).unwrap(),
+    )?;
     log("Profil fertig");
     Ok(pth)
 }
@@ -864,7 +1148,9 @@ mod tests {
     use std::env;
 
     fn releng_dir() -> PathBuf {
-        env::var("DISTRO_BUILDER_RELENG").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(RELENG))
+        env::var("DISTRO_BUILDER_RELENG")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(RELENG))
     }
 
     fn make_cfg(tmp: &Path) -> Config {
@@ -881,8 +1167,18 @@ mod tests {
         let mut cfg = C::default_config();
         cfg.repos.multilib = true;
         cfg.repos.custom = vec![
-            crate::config::CustomRepo { name: "vorne".into(), server: "https://a/$arch".into(), siglevel: "Optional TrustAll".into(), first: true },
-            crate::config::CustomRepo { name: "hinten".into(), server: "https://b/$arch".into(), siglevel: "Never".into(), first: false },
+            crate::config::CustomRepo {
+                name: "vorne".into(),
+                server: "https://a/$arch".into(),
+                siglevel: "Optional TrustAll".into(),
+                first: true,
+            },
+            crate::config::CustomRepo {
+                name: "hinten".into(),
+                server: "https://b/$arch".into(),
+                siglevel: "Never".into(),
+                first: false,
+            },
         ];
         let text = pacman_conf(&cfg);
         let order: Vec<usize> = ["vorne", "core", "extra", "multilib", "hinten"]
@@ -911,7 +1207,10 @@ mod tests {
             let air = pth.profile.join("airootfs");
             assert!(air.join("usr/share/testos/os-release").is_file());
             let has_installer = key != "none";
-            assert_eq!(air.join("etc/distro-installer.json").is_file(), has_installer);
+            assert_eq!(
+                air.join("etc/distro-installer.json").is_file(),
+                has_installer
+            );
         }
     }
 }

@@ -53,12 +53,16 @@ pub fn parse_model(name: &str) -> (String, String, String, String) {
 }
 
 fn request(url: &str, extra_headers: &[(&str, String)]) -> Result<ureq::Response, FetchError> {
-    let mut req = ureq::get(url).set("User-Agent", UA).timeout(std::time::Duration::from_secs(60));
+    let mut req = ureq::get(url)
+        .set("User-Agent", UA)
+        .timeout(std::time::Duration::from_secs(60));
     for (k, v) in extra_headers {
         req = req.set(k, v);
     }
     req.call().map_err(|e| match e {
-        ureq::Error::Status(code, resp) => FetchError::msg(format!("HTTP {code} für {url}: {}", resp.status_text())),
+        ureq::Error::Status(code, resp) => {
+            FetchError::msg(format!("HTTP {code} für {url}: {}", resp.status_text()))
+        }
         ureq::Error::Transport(t) => FetchError::msg(format!("Registry nicht erreichbar: {t}")),
     })
 }
@@ -94,9 +98,16 @@ fn model_manifest(name: &str) -> Result<ParsedManifest, FetchError> {
         .map_err(|_| FetchError::msg(format!("Modell '{name}' nicht gefunden")))?;
     let mut raw = Vec::new();
     resp.into_reader().read_to_end(&mut raw)?;
-    let manifest: Manifest =
-        serde_json::from_slice(&raw).map_err(|e| FetchError::msg(format!("Ungültiges Manifest für {name}: {e}")))?;
-    Ok(ParsedManifest { raw, manifest, host, namespace: ns, model, tag })
+    let manifest: Manifest = serde_json::from_slice(&raw)
+        .map_err(|e| FetchError::msg(format!("Ungültiges Manifest für {name}: {e}")))?;
+    Ok(ParsedManifest {
+        raw,
+        manifest,
+        host,
+        namespace: ns,
+        model,
+        tag,
+    })
 }
 
 /// Größe eines Modells in Bytes (ohne Download).
@@ -116,15 +127,25 @@ pub fn pull_model(
     let m = model_manifest(name)?;
     let mut blobs = Vec::new();
     if let Some(c) = &m.manifest.config {
-        blobs.push(ManifestLayer { digest: c.digest.clone(), size: c.size });
+        blobs.push(ManifestLayer {
+            digest: c.digest.clone(),
+            size: c.size,
+        });
     }
     for l in &m.manifest.layers {
-        blobs.push(ManifestLayer { digest: l.digest.clone(), size: l.size });
+        blobs.push(ManifestLayer {
+            digest: l.digest.clone(),
+            size: l.size,
+        });
     }
     let total: u64 = blobs.iter().map(|b| b.size).sum::<u64>().max(1);
     let mut done: u64 = 0;
     fs::create_dir_all(store.join("blobs"))?;
-    log(&format!("Modell {name}: {:.2} GB in {} Teilen", total as f64 / 1024f64.powi(3), blobs.len()));
+    log(&format!(
+        "Modell {name}: {:.2} GB in {} Teilen",
+        total as f64 / 1024f64.powi(3),
+        blobs.len()
+    ));
     for b in &blobs {
         let dest = store.join("blobs").join(b.digest.replace(':', "-"));
         if dest.exists() && fs::metadata(&dest)?.len() == b.size {
@@ -132,10 +153,22 @@ pub fn pull_model(
             continue;
         }
         let part = dest.with_extension("part");
-        let have = if part.exists() { fs::metadata(&part)?.len() } else { 0 };
-        let url = format!("https://{}/v2/{}/{}/blobs/{}", m.host, m.namespace, m.model, b.digest);
-        let headers: Vec<(&str, String)> = if have > 0 { vec![("Range", format!("bytes={have}-"))] } else { vec![] };
-        let resp = request(&url, &headers).map_err(|e| FetchError::msg(format!("Download von {name} fehlgeschlagen: {e}")))?;
+        let have = if part.exists() {
+            fs::metadata(&part)?.len()
+        } else {
+            0
+        };
+        let url = format!(
+            "https://{}/v2/{}/{}/blobs/{}",
+            m.host, m.namespace, m.model, b.digest
+        );
+        let headers: Vec<(&str, String)> = if have > 0 {
+            vec![("Range", format!("bytes={have}-"))]
+        } else {
+            vec![]
+        };
+        let resp = request(&url, &headers)
+            .map_err(|e| FetchError::msg(format!("Download von {name} fehlgeschlagen: {e}")))?;
         let partial = resp.status() == 206;
         let mut file = fs::OpenOptions::new()
             .create(true)
@@ -157,7 +190,11 @@ pub fn pull_model(
             if let Some(p) = progress.as_mut() {
                 p(
                     (done + got) as f64 / total as f64,
-                    &format!("{name}: {:.2} / {:.2} GB", (done + got) as f64 / 1024f64.powi(3), total as f64 / 1024f64.powi(3)),
+                    &format!(
+                        "{name}: {:.2} / {:.2} GB",
+                        (done + got) as f64 / 1024f64.powi(3),
+                        total as f64 / 1024f64.powi(3)
+                    ),
                 );
             }
         }
@@ -175,12 +212,18 @@ pub fn pull_model(
         let digest_hex = format!("sha256:{:x}", hasher.finalize());
         if digest_hex != b.digest {
             let _ = fs::remove_file(&part);
-            return Err(FetchError::msg(format!("Prüfsumme von {name} stimmt nicht – bitte erneut bauen.")));
+            return Err(FetchError::msg(format!(
+                "Prüfsumme von {name} stimmt nicht – bitte erneut bauen."
+            )));
         }
         fs::rename(&part, &dest)?;
         done += b.size;
     }
-    let mdir = store.join("manifests").join(&m.host).join(&m.namespace).join(&m.model);
+    let mdir = store
+        .join("manifests")
+        .join(&m.host)
+        .join(&m.namespace)
+        .join(&m.model);
     fs::create_dir_all(&mdir)?;
     fs::write(mdir.join(&m.tag), &m.raw)?;
     log(&format!("Modell {name} fertig \u{2714}"));
@@ -222,7 +265,11 @@ fn which(prog: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub fn pull_image(image: &str, dest_dir: &Path, log: &mut dyn FnMut(&str)) -> Result<PathBuf, FetchError> {
+pub fn pull_image(
+    image: &str,
+    dest_dir: &Path,
+    log: &mut dyn FnMut(&str),
+) -> Result<PathBuf, FetchError> {
     fs::create_dir_all(dest_dir)?;
     let dest = dest_dir.join(image_file(image));
     if dest.exists() && fs::metadata(&dest)?.len() > 0 {
@@ -240,28 +287,49 @@ pub fn pull_image(image: &str, dest_dir: &Path, log: &mut dyn FnMut(&str)) -> Re
     let _ = fs::remove_file(&tmp);
     let commands: Vec<Vec<String>> = if tool == "skopeo" {
         vec![vec![
-            "skopeo".into(), "copy".into(), "--override-os".into(), "linux".into(), "--override-arch".into(), "amd64".into(),
-            format!("docker://{reference}"), format!("docker-archive:{}:{reference}", tmp.display()),
+            "skopeo".into(),
+            "copy".into(),
+            "--override-os".into(),
+            "linux".into(),
+            "--override-arch".into(),
+            "amd64".into(),
+            format!("docker://{reference}"),
+            format!("docker-archive:{}:{reference}", tmp.display()),
         ]]
     } else {
         vec![
             vec![tool.to_string(), "pull".into(), reference.clone()],
-            vec![tool.to_string(), "save".into(), "-o".into(), tmp.display().to_string(), reference.clone()],
+            vec![
+                tool.to_string(),
+                "save".into(),
+                "-o".into(),
+                tmp.display().to_string(),
+                reference.clone(),
+            ],
         ]
     };
     for cmd in commands {
         let out = Command::new(&cmd[0]).args(&cmd[1..]).output()?;
         if !out.status.success() {
-            let msg = if !out.stderr.is_empty() { out.stderr } else { out.stdout };
+            let msg = if !out.stderr.is_empty() {
+                out.stderr
+            } else {
+                out.stdout
+            };
             let mut text = String::from_utf8_lossy(&msg).into_owned();
             if text.len() > 600 {
                 text = text[text.len() - 600..].to_string();
             }
-            return Err(FetchError::msg(format!("Image {image} konnte nicht geladen werden:\n{text}")));
+            return Err(FetchError::msg(format!(
+                "Image {image} konnte nicht geladen werden:\n{text}"
+            )));
         }
     }
     fs::rename(&tmp, &dest)?;
-    log(&format!("Image {image}: {:.0} MB \u{2714}", fs::metadata(&dest)?.len() as f64 / 1024f64.powi(2)));
+    log(&format!(
+        "Image {image}: {:.0} MB \u{2714}",
+        fs::metadata(&dest)?.len() as f64 / 1024f64.powi(2)
+    ));
     Ok(dest)
 }
 
@@ -306,8 +374,16 @@ pub fn prepare_assets(
     let cache = pth.base.join("cache");
     let air = pth.profile.join("airootfs");
     let gid = &cfg.general.id;
-    let models: Vec<String> = if cfg.ai.ollama { cfg.ai.models.clone() } else { Vec::new() };
-    let images: Vec<String> = if cfg.containers.preload { C::container_images(cfg) } else { Vec::new() };
+    let models: Vec<String> = if cfg.ai.ollama {
+        cfg.ai.models.clone()
+    } else {
+        Vec::new()
+    };
+    let images: Vec<String> = if cfg.containers.preload {
+        C::container_images(cfg)
+    } else {
+        Vec::new()
+    };
     let steps = models.len() + images.len();
     if steps == 0 {
         return Ok(());
@@ -323,7 +399,12 @@ pub fn prepare_assets(
                 let p: &mut dyn FnMut(f64, &str) = *p;
                 move |frac: f64, text: &str| p((step_f + frac) / steps_f, text)
             });
-            pull_model(m, &store, log, sub.as_mut().map(|f| f as &mut dyn FnMut(f64, &str)))?;
+            pull_model(
+                m,
+                &store,
+                log,
+                sub.as_mut().map(|f| f as &mut dyn FnMut(f64, &str)),
+            )?;
             step += 1;
         }
         link_tree(&store, &air.join("var/lib/ollama/models"))?;
@@ -333,7 +414,10 @@ pub fn prepare_assets(
         let mut wanted = std::collections::HashSet::new();
         for img in &images {
             if let Some(p) = progress.as_mut() {
-                p(step as f64 / steps as f64, &format!("Container-Image {img}"));
+                p(
+                    step as f64 / steps as f64,
+                    &format!("Container-Image {img}"),
+                );
             }
             let dest = pull_image(img, &idir, log)?;
             wanted.insert(dest.file_name().unwrap().to_os_string());
@@ -377,22 +461,40 @@ mod tests {
     fn test_parse_model() {
         assert_eq!(
             parse_model("llama3.2:3b"),
-            ("registry.ollama.ai".to_string(), "library".to_string(), "llama3.2".to_string(), "3b".to_string())
+            (
+                "registry.ollama.ai".to_string(),
+                "library".to_string(),
+                "llama3.2".to_string(),
+                "3b".to_string()
+            )
         );
         assert_eq!(
             parse_model("phi4-mini"),
-            ("registry.ollama.ai".to_string(), "library".to_string(), "phi4-mini".to_string(), "latest".to_string())
+            (
+                "registry.ollama.ai".to_string(),
+                "library".to_string(),
+                "phi4-mini".to_string(),
+                "latest".to_string()
+            )
         );
         assert_eq!(
             parse_model("hf.co/user/Repo-GGUF:Q4_K_M"),
-            ("hf.co".to_string(), "user".to_string(), "Repo-GGUF".to_string(), "Q4_K_M".to_string())
+            (
+                "hf.co".to_string(),
+                "user".to_string(),
+                "Repo-GGUF".to_string(),
+                "Q4_K_M".to_string()
+            )
         );
     }
 
     #[test]
     fn test_full_ref() {
         assert_eq!(full_ref("nginx"), "docker.io/library/nginx:latest");
-        assert_eq!(full_ref("portainer/portainer-ce"), "docker.io/portainer/portainer-ce:latest");
+        assert_eq!(
+            full_ref("portainer/portainer-ce"),
+            "docker.io/portainer/portainer-ce:latest"
+        );
         assert_eq!(full_ref("ghcr.io/a/b:main"), "ghcr.io/a/b:main");
     }
 }

@@ -122,7 +122,12 @@ impl Default for Packages {
         Self {
             kernel: "linux".into(),
             desktop: "kde".into(),
-            presets: vec!["audio".into(), "firefox".into(), "fonts".into(), "utils".into()],
+            presets: vec![
+                "audio".into(),
+                "firefox".into(),
+                "fonts".into(),
+                "utils".into(),
+            ],
             custom: String::new(),
             rescue_tools: true,
             gpu: "mesa".into(),
@@ -194,7 +199,12 @@ pub struct Containers {
 
 impl Default for Containers {
     fn default() -> Self {
-        Self { engine: "none".into(), preload: true, images: String::new(), stacks: Vec::new() }
+        Self {
+            engine: "none".into(),
+            preload: true,
+            images: String::new(),
+            stacks: Vec::new(),
+        }
     }
 }
 
@@ -211,7 +221,13 @@ pub struct Ai {
 
 impl Default for Ai {
     fn default() -> Self {
-        Self { ollama: false, accel: "cpu".into(), models: Vec::new(), expose: false, dev: false }
+        Self {
+            ollama: false,
+            accel: "cpu".into(),
+            models: Vec::new(),
+            expose: false,
+            dev: false,
+        }
     }
 }
 
@@ -292,7 +308,10 @@ pub fn custom_packages(cfg: &Config) -> Vec<String> {
 
 fn split_ws_comma(s: &str) -> Vec<String> {
     let re = Regex::new(r"[\s,]+").unwrap();
-    re.split(s.trim()).filter(|p| !p.is_empty()).map(|p| p.to_string()).collect()
+    re.split(s.trim())
+        .filter(|p| !p.is_empty())
+        .map(|p| p.to_string())
+        .collect()
 }
 
 // ---------------------------------------------------------------- Static data
@@ -316,12 +335,28 @@ pub fn kernels() -> Vec<(&'static str, &'static str)> {
 
 pub fn desktops() -> Vec<(&'static str, DesktopInfo)> {
     vec![
-        ("none", DesktopInfo { label: "Kein Desktop (nur Konsole)", packages: vec![], display_manager: None, session: None }),
+        (
+            "none",
+            DesktopInfo {
+                label: "Kein Desktop (nur Konsole)",
+                packages: vec![],
+                display_manager: None,
+                session: None,
+            },
+        ),
         (
             "kde",
             DesktopInfo {
                 label: "KDE Plasma",
-                packages: vec!["plasma-meta", "konsole", "dolphin", "kate", "ark", "spectacle", "sddm"],
+                packages: vec![
+                    "plasma-meta",
+                    "konsole",
+                    "dolphin",
+                    "kate",
+                    "ark",
+                    "spectacle",
+                    "sddm",
+                ],
                 display_manager: Some("sddm"),
                 session: Some("plasma"),
             },
@@ -340,8 +375,13 @@ pub fn desktops() -> Vec<(&'static str, DesktopInfo)> {
             DesktopInfo {
                 label: "Xfce",
                 packages: vec![
-                    "xorg-server", "xfce4", "xfce4-goodies", "lightdm", "lightdm-gtk-greeter",
-                    "network-manager-applet", "gvfs",
+                    "xorg-server",
+                    "xfce4",
+                    "xfce4-goodies",
+                    "lightdm",
+                    "lightdm-gtk-greeter",
+                    "network-manager-applet",
+                    "gvfs",
                 ],
                 display_manager: Some("lightdm"),
                 session: Some("xfce"),
@@ -352,7 +392,13 @@ pub fn desktops() -> Vec<(&'static str, DesktopInfo)> {
             DesktopInfo {
                 label: "Cinnamon",
                 packages: vec![
-                    "xorg-server", "cinnamon", "gnome-terminal", "nemo", "lightdm", "lightdm-gtk-greeter", "gvfs",
+                    "xorg-server",
+                    "cinnamon",
+                    "gnome-terminal",
+                    "nemo",
+                    "lightdm",
+                    "lightdm-gtk-greeter",
+                    "gvfs",
                 ],
                 display_manager: Some("lightdm"),
                 session: Some("cinnamon"),
@@ -362,7 +408,13 @@ pub fn desktops() -> Vec<(&'static str, DesktopInfo)> {
             "lxqt",
             DesktopInfo {
                 label: "LXQt",
-                packages: vec!["xorg-server", "lxqt", "breeze-icons", "sddm", "network-manager-applet"],
+                packages: vec![
+                    "xorg-server",
+                    "lxqt",
+                    "breeze-icons",
+                    "sddm",
+                    "network-manager-applet",
+                ],
                 display_manager: Some("sddm"),
                 session: Some("lxqt"),
             },
@@ -388,18 +440,114 @@ pub struct PresetInfo {
 
 pub fn presets() -> Vec<(&'static str, PresetInfo)> {
     vec![
-        ("audio", PresetInfo { label: "Audio (PipeWire)", desc: "pipewire, pulse, alsa, wireplumber", packages: vec!["pipewire", "pipewire-pulse", "pipewire-alsa", "wireplumber"], services: vec![] }),
-        ("bluetooth", PresetInfo { label: "Bluetooth", desc: "bluez + Dienst", packages: vec!["bluez", "bluez-utils"], services: vec!["bluetooth.service"] }),
-        ("printing", PresetInfo { label: "Drucken", desc: "CUPS + Treiber", packages: vec!["cups", "cups-pdf", "gutenprint"], services: vec!["cups.service"] }),
-        ("firefox", PresetInfo { label: "Firefox", desc: "Webbrowser", packages: vec!["firefox"], services: vec![] }),
-        ("chromium", PresetInfo { label: "Chromium", desc: "Webbrowser", packages: vec!["chromium"], services: vec![] }),
-        ("office", PresetInfo { label: "LibreOffice", desc: "Office-Paket", packages: vec!["libreoffice-fresh"], services: vec![] }),
-        ("media", PresetInfo { label: "Multimedia", desc: "VLC, mpv, GIMP", packages: vec!["vlc", "mpv", "gimp"], services: vec![] }),
-        ("fonts", PresetInfo { label: "Schriften", desc: "Noto + Emoji", packages: vec!["noto-fonts", "noto-fonts-emoji", "ttf-dejavu"], services: vec![] }),
-        ("flatpak", PresetInfo { label: "Flatpak", desc: "Flatpak-Unterstützung", packages: vec!["flatpak"], services: vec![] }),
-        ("dev", PresetInfo { label: "Entwicklung", desc: "base-devel, git", packages: vec!["base-devel", "git"], services: vec![] }),
-        ("utils", PresetInfo { label: "Werkzeuge", desc: "htop, wget, unzip, man", packages: vec!["htop", "wget", "unzip", "zip", "man-db", "man-pages"], services: vec![] }),
-        ("gaming", PresetInfo { label: "Gaming", desc: "Steam (benötigt multilib)", packages: vec!["steam"], services: vec![] }),
+        (
+            "audio",
+            PresetInfo {
+                label: "Audio (PipeWire)",
+                desc: "pipewire, pulse, alsa, wireplumber",
+                packages: vec!["pipewire", "pipewire-pulse", "pipewire-alsa", "wireplumber"],
+                services: vec![],
+            },
+        ),
+        (
+            "bluetooth",
+            PresetInfo {
+                label: "Bluetooth",
+                desc: "bluez + Dienst",
+                packages: vec!["bluez", "bluez-utils"],
+                services: vec!["bluetooth.service"],
+            },
+        ),
+        (
+            "printing",
+            PresetInfo {
+                label: "Drucken",
+                desc: "CUPS + Treiber",
+                packages: vec!["cups", "cups-pdf", "gutenprint"],
+                services: vec!["cups.service"],
+            },
+        ),
+        (
+            "firefox",
+            PresetInfo {
+                label: "Firefox",
+                desc: "Webbrowser",
+                packages: vec!["firefox"],
+                services: vec![],
+            },
+        ),
+        (
+            "chromium",
+            PresetInfo {
+                label: "Chromium",
+                desc: "Webbrowser",
+                packages: vec!["chromium"],
+                services: vec![],
+            },
+        ),
+        (
+            "office",
+            PresetInfo {
+                label: "LibreOffice",
+                desc: "Office-Paket",
+                packages: vec!["libreoffice-fresh"],
+                services: vec![],
+            },
+        ),
+        (
+            "media",
+            PresetInfo {
+                label: "Multimedia",
+                desc: "VLC, mpv, GIMP",
+                packages: vec!["vlc", "mpv", "gimp"],
+                services: vec![],
+            },
+        ),
+        (
+            "fonts",
+            PresetInfo {
+                label: "Schriften",
+                desc: "Noto + Emoji",
+                packages: vec!["noto-fonts", "noto-fonts-emoji", "ttf-dejavu"],
+                services: vec![],
+            },
+        ),
+        (
+            "flatpak",
+            PresetInfo {
+                label: "Flatpak",
+                desc: "Flatpak-Unterstützung",
+                packages: vec!["flatpak"],
+                services: vec![],
+            },
+        ),
+        (
+            "dev",
+            PresetInfo {
+                label: "Entwicklung",
+                desc: "base-devel, git",
+                packages: vec!["base-devel", "git"],
+                services: vec![],
+            },
+        ),
+        (
+            "utils",
+            PresetInfo {
+                label: "Werkzeuge",
+                desc: "htop, wget, unzip, man",
+                packages: vec!["htop", "wget", "unzip", "zip", "man-db", "man-pages"],
+                services: vec![],
+            },
+        ),
+        (
+            "gaming",
+            PresetInfo {
+                label: "Gaming",
+                desc: "Steam (benötigt multilib)",
+                packages: vec!["steam"],
+                services: vec![],
+            },
+        ),
     ]
 }
 
@@ -411,15 +559,53 @@ pub struct GpuInfo {
 
 pub fn gpus() -> Vec<(&'static str, GpuInfo)> {
     vec![
-        ("mesa", GpuInfo { label: "Standard (Mesa, freie Treiber)", packages: vec!["mesa", "vulkan-icd-loader"] }),
-        ("amd", GpuInfo { label: "AMD Radeon (Mesa + Vulkan)", packages: vec!["mesa", "vulkan-radeon", "vulkan-icd-loader"] }),
-        ("intel", GpuInfo { label: "Intel (Mesa + Vulkan + VA-API)", packages: vec!["mesa", "vulkan-intel", "intel-media-driver", "vulkan-icd-loader"] }),
-        ("nvidia", GpuInfo { label: "NVIDIA (proprietär, nvidia-open)", packages: vec!["nvidia-open-dkms", "nvidia-utils", "nvidia-settings", "vulkan-icd-loader"] }),
+        (
+            "mesa",
+            GpuInfo {
+                label: "Standard (Mesa, freie Treiber)",
+                packages: vec!["mesa", "vulkan-icd-loader"],
+            },
+        ),
+        (
+            "amd",
+            GpuInfo {
+                label: "AMD Radeon (Mesa + Vulkan)",
+                packages: vec!["mesa", "vulkan-radeon", "vulkan-icd-loader"],
+            },
+        ),
+        (
+            "intel",
+            GpuInfo {
+                label: "Intel (Mesa + Vulkan + VA-API)",
+                packages: vec![
+                    "mesa",
+                    "vulkan-intel",
+                    "intel-media-driver",
+                    "vulkan-icd-loader",
+                ],
+            },
+        ),
+        (
+            "nvidia",
+            GpuInfo {
+                label: "NVIDIA (proprietär, nvidia-open)",
+                packages: vec![
+                    "nvidia-open-dkms",
+                    "nvidia-utils",
+                    "nvidia-settings",
+                    "vulkan-icd-loader",
+                ],
+            },
+        ),
     ]
 }
 
 fn gpu_info(key: &str) -> GpuInfo {
-    gpus().into_iter().find(|(k, _)| *k == key).map(|(_, v)| v).unwrap_or_else(|| gpus().remove(0).1)
+    gpus()
+        .into_iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, v)| v)
+        .unwrap_or_else(|| gpus().remove(0).1)
 }
 
 #[derive(Debug, Clone)]
@@ -431,14 +617,39 @@ pub struct EngineInfo {
 
 pub fn container_engines() -> Vec<(&'static str, EngineInfo)> {
     vec![
-        ("none", EngineInfo { label: "Keine", packages: vec![], services: vec![] }),
-        ("docker", EngineInfo { label: "Docker", packages: vec!["docker", "docker-compose", "docker-buildx", "lazydocker"], services: vec!["docker.service"] }),
-        ("podman", EngineInfo { label: "Podman (ohne Daemon, rootless)", packages: vec!["podman", "podman-compose", "podman-docker", "distrobox"], services: vec!["podman.socket"] }),
+        (
+            "none",
+            EngineInfo {
+                label: "Keine",
+                packages: vec![],
+                services: vec![],
+            },
+        ),
+        (
+            "docker",
+            EngineInfo {
+                label: "Docker",
+                packages: vec!["docker", "docker-compose", "docker-buildx", "lazydocker"],
+                services: vec!["docker.service"],
+            },
+        ),
+        (
+            "podman",
+            EngineInfo {
+                label: "Podman (ohne Daemon, rootless)",
+                packages: vec!["podman", "podman-compose", "podman-docker", "distrobox"],
+                services: vec!["podman.socket"],
+            },
+        ),
     ]
 }
 
 fn engine_info(key: &str) -> EngineInfo {
-    container_engines().into_iter().find(|(k, _)| *k == key).map(|(_, v)| v).unwrap_or_else(|| container_engines().remove(0).1)
+    container_engines()
+        .into_iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, v)| v)
+        .unwrap_or_else(|| container_engines().remove(0).1)
 }
 
 #[derive(Debug, Clone)]
@@ -449,15 +660,43 @@ pub struct AccelInfo {
 
 pub fn ollama_accel() -> Vec<(&'static str, AccelInfo)> {
     vec![
-        ("cpu", AccelInfo { label: "Nur CPU", packages: vec!["ollama"] }),
-        ("cuda", AccelInfo { label: "NVIDIA (CUDA)", packages: vec!["ollama", "ollama-cuda"] }),
-        ("rocm", AccelInfo { label: "AMD (ROCm)", packages: vec!["ollama", "ollama-rocm"] }),
-        ("vulkan", AccelInfo { label: "Vulkan (AMD/Intel/NVIDIA)", packages: vec!["ollama", "ollama-vulkan", "vulkan-icd-loader"] }),
+        (
+            "cpu",
+            AccelInfo {
+                label: "Nur CPU",
+                packages: vec!["ollama"],
+            },
+        ),
+        (
+            "cuda",
+            AccelInfo {
+                label: "NVIDIA (CUDA)",
+                packages: vec!["ollama", "ollama-cuda"],
+            },
+        ),
+        (
+            "rocm",
+            AccelInfo {
+                label: "AMD (ROCm)",
+                packages: vec!["ollama", "ollama-rocm"],
+            },
+        ),
+        (
+            "vulkan",
+            AccelInfo {
+                label: "Vulkan (AMD/Intel/NVIDIA)",
+                packages: vec!["ollama", "ollama-vulkan", "vulkan-icd-loader"],
+            },
+        ),
     ]
 }
 
 fn accel_info(key: &str) -> AccelInfo {
-    ollama_accel().into_iter().find(|(k, _)| *k == key).map(|(_, v)| v).unwrap_or_else(|| ollama_accel().remove(0).1)
+    ollama_accel()
+        .into_iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, v)| v)
+        .unwrap_or_else(|| ollama_accel().remove(0).1)
 }
 
 #[derive(Debug, Clone)]
@@ -469,14 +708,46 @@ pub struct ModelPreset {
 
 pub fn model_presets() -> Vec<ModelPreset> {
     vec![
-        ModelPreset { name: "llama3.2:3b", desc: "Meta Llama 3.2 – 3B, schnell", size_gb: 2.0 },
-        ModelPreset { name: "llama3.1:8b", desc: "Meta Llama 3.1 – 8B, Allrounder", size_gb: 4.9 },
-        ModelPreset { name: "qwen3:8b", desc: "Qwen 3 – 8B, stark mehrsprachig", size_gb: 5.2 },
-        ModelPreset { name: "gemma3:4b", desc: "Google Gemma 3 – 4B", size_gb: 3.3 },
-        ModelPreset { name: "mistral:7b", desc: "Mistral 7B", size_gb: 4.1 },
-        ModelPreset { name: "deepseek-r1:8b", desc: "DeepSeek R1 – 8B, Reasoning", size_gb: 5.2 },
-        ModelPreset { name: "phi4-mini", desc: "Microsoft Phi-4 mini – 3.8B", size_gb: 2.5 },
-        ModelPreset { name: "nomic-embed-text", desc: "Embeddings für RAG/Suche", size_gb: 0.3 },
+        ModelPreset {
+            name: "llama3.2:3b",
+            desc: "Meta Llama 3.2 – 3B, schnell",
+            size_gb: 2.0,
+        },
+        ModelPreset {
+            name: "llama3.1:8b",
+            desc: "Meta Llama 3.1 – 8B, Allrounder",
+            size_gb: 4.9,
+        },
+        ModelPreset {
+            name: "qwen3:8b",
+            desc: "Qwen 3 – 8B, stark mehrsprachig",
+            size_gb: 5.2,
+        },
+        ModelPreset {
+            name: "gemma3:4b",
+            desc: "Google Gemma 3 – 4B",
+            size_gb: 3.3,
+        },
+        ModelPreset {
+            name: "mistral:7b",
+            desc: "Mistral 7B",
+            size_gb: 4.1,
+        },
+        ModelPreset {
+            name: "deepseek-r1:8b",
+            desc: "DeepSeek R1 – 8B, Reasoning",
+            size_gb: 5.2,
+        },
+        ModelPreset {
+            name: "phi4-mini",
+            desc: "Microsoft Phi-4 mini – 3.8B",
+            size_gb: 2.5,
+        },
+        ModelPreset {
+            name: "nomic-embed-text",
+            desc: "Embeddings für RAG/Suche",
+            size_gb: 0.3,
+        },
     ]
 }
 
@@ -523,30 +794,70 @@ pub fn siglevels() -> Vec<&'static str> {
 /// Minimale Live-Pakete, wenn die Arch-Rettungswerkzeuge abgewählt sind
 pub fn minimal_live() -> Vec<&'static str> {
     vec![
-        "base", "linux", "linux-firmware", "mkinitcpio", "mkinitcpio-archiso", "syslinux",
-        "memtest86+", "memtest86+-efi", "edk2-shell", "efibootmgr", "grub", "amd-ucode", "intel-ucode",
-        "arch-install-scripts", "gptfdisk", "parted", "dosfstools", "e2fsprogs", "btrfs-progs",
-        "sudo", "nano", "vim", "zsh", "grml-zsh-config", "iwd", "openssh", "reflector", "rsync",
-        "less", "usbutils", "sof-firmware",
+        "base",
+        "linux",
+        "linux-firmware",
+        "mkinitcpio",
+        "mkinitcpio-archiso",
+        "syslinux",
+        "memtest86+",
+        "memtest86+-efi",
+        "edk2-shell",
+        "efibootmgr",
+        "grub",
+        "amd-ucode",
+        "intel-ucode",
+        "arch-install-scripts",
+        "gptfdisk",
+        "parted",
+        "dosfstools",
+        "e2fsprogs",
+        "btrfs-progs",
+        "sudo",
+        "nano",
+        "vim",
+        "zsh",
+        "grml-zsh-config",
+        "iwd",
+        "openssh",
+        "reflector",
+        "rsync",
+        "less",
+        "usbutils",
+        "sof-firmware",
     ]
 }
 
 /// Dienst-Links aus releng, die im Minimalmodus ins Leere zeigen würden
 pub fn minimal_drop_units() -> Vec<&'static str> {
     vec![
-        "cloud-init.target.wants", "multi-user.target.wants/hv_fcopy_daemon.service",
-        "multi-user.target.wants/hv_kvp_daemon.service", "multi-user.target.wants/hv_vss_daemon.service",
-        "multi-user.target.wants/vboxservice.service", "multi-user.target.wants/vmtoolsd.service",
-        "multi-user.target.wants/vmware-vmblock-fuse.service", "multi-user.target.wants/livecd-talk.service",
-        "multi-user.target.wants/ModemManager.service", "dbus-org.freedesktop.ModemManager1.service",
-        "sockets.target.wants/pcscd.socket", "sound.target.wants/livecd-alsa-unmuter.service",
+        "cloud-init.target.wants",
+        "multi-user.target.wants/hv_fcopy_daemon.service",
+        "multi-user.target.wants/hv_kvp_daemon.service",
+        "multi-user.target.wants/hv_vss_daemon.service",
+        "multi-user.target.wants/vboxservice.service",
+        "multi-user.target.wants/vmtoolsd.service",
+        "multi-user.target.wants/vmware-vmblock-fuse.service",
+        "multi-user.target.wants/livecd-talk.service",
+        "multi-user.target.wants/ModemManager.service",
+        "dbus-org.freedesktop.ModemManager1.service",
+        "sockets.target.wants/pcscd.socket",
+        "sound.target.wants/livecd-alsa-unmuter.service",
     ]
 }
 
 pub fn installer_deps() -> Vec<&'static str> {
     vec![
-        "arch-install-scripts", "gptfdisk", "parted", "dosfstools", "e2fsprogs", "btrfs-progs", "rsync", "sudo",
-        "squashfs-tools", "cryptsetup",
+        "arch-install-scripts",
+        "gptfdisk",
+        "parted",
+        "dosfstools",
+        "e2fsprogs",
+        "btrfs-progs",
+        "rsync",
+        "sudo",
+        "squashfs-tools",
+        "cryptsetup",
     ]
 }
 
@@ -592,8 +903,19 @@ fn to_strings(v: Vec<&str>) -> Vec<String> {
 pub fn target_packages(cfg: &Config) -> Vec<String> {
     let p = &cfg.packages;
     let mut pkgs: Vec<String> = to_strings(vec![
-        "base", "linux-firmware", "amd-ucode", "intel-ucode", "grub", "efibootmgr", "dosfstools",
-        "networkmanager", "sudo", "nano", "vim", "bash-completion", "fastfetch",
+        "base",
+        "linux-firmware",
+        "amd-ucode",
+        "intel-ucode",
+        "grub",
+        "efibootmgr",
+        "dosfstools",
+        "networkmanager",
+        "sudo",
+        "nano",
+        "vim",
+        "bash-completion",
+        "fastfetch",
     ]);
     pkgs.insert(1, p.kernel.clone());
     if needs_chafa(cfg) {
@@ -603,7 +925,11 @@ pub fn target_packages(cfg: &Config) -> Vec<String> {
         pkgs.push("zram-generator".into());
     }
     pkgs.extend(desktop_info(cfg).packages.iter().map(|s| s.to_string()));
-    let gpu = if p.gpu.is_empty() { "mesa" } else { p.gpu.as_str() };
+    let gpu = if p.gpu.is_empty() {
+        "mesa"
+    } else {
+        p.gpu.as_str()
+    };
     pkgs.extend(gpu_info(gpu).packages.iter().map(|s| s.to_string()));
     if gpu == "nvidia" {
         pkgs.push(format!("{}-headers", p.kernel));
@@ -624,10 +950,17 @@ pub fn target_packages(cfg: &Config) -> Vec<String> {
             _ => "python-pytorch",
         };
         pkgs.extend(
-            [torch, "python-numpy", "python-pandas", "python-scikit-learn", "jupyterlab",
-             "python-huggingface-hub", "python-pip"]
-                .iter()
-                .map(|s| s.to_string()),
+            [
+                torch,
+                "python-numpy",
+                "python-pandas",
+                "python-scikit-learn",
+                "jupyterlab",
+                "python-huggingface-hub",
+                "python-pip",
+            ]
+            .iter()
+            .map(|s| s.to_string()),
         );
     }
     let all_presets = presets();
@@ -641,8 +974,11 @@ pub fn target_packages(cfg: &Config) -> Vec<String> {
 }
 
 pub fn target_services(cfg: &Config) -> Vec<String> {
-    let mut services: Vec<String> =
-        to_strings(vec!["NetworkManager.service", "systemd-timesyncd.service", "fstrim.timer"]);
+    let mut services: Vec<String> = to_strings(vec![
+        "NetworkManager.service",
+        "systemd-timesyncd.service",
+        "fstrim.timer",
+    ]);
     if let Some(dm) = desktop_info(cfg).display_manager {
         services.push(format!("{dm}.service"));
     }
@@ -652,7 +988,12 @@ pub fn target_services(cfg: &Config) -> Vec<String> {
             services.extend(info.services.iter().map(|s| s.to_string()));
         }
     }
-    services.extend(engine_info(&cfg.containers.engine).services.iter().map(|s| s.to_string()));
+    services.extend(
+        engine_info(&cfg.containers.engine)
+            .services
+            .iter()
+            .map(|s| s.to_string()),
+    );
     if cfg.ai.ollama {
         services.push("ollama.service".into());
     }
@@ -715,7 +1056,10 @@ pub fn validate(cfg: &Config) -> (Vec<String>, Vec<String>) {
         errors.push("Der Distro-Name darf nicht leer sein.".to_string());
     }
     if !id_re().is_match(&g.id) {
-        errors.push("Die ID darf nur Kleinbuchstaben, Ziffern und '-' enthalten (max. 31 Zeichen).".to_string());
+        errors.push(
+            "Die ID darf nur Kleinbuchstaben, Ziffern und '-' enthalten (max. 31 Zeichen)."
+                .to_string(),
+        );
     }
     let hostname_re = Regex::new(r"^[a-zA-Z0-9-]{1,63}$").unwrap();
     if !hostname_re.is_match(&g.hostname) {
@@ -737,7 +1081,10 @@ pub fn validate(cfg: &Config) -> (Vec<String>, Vec<String>) {
     let repo_name_re = Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap();
     for repo in &cfg.repos.custom {
         if !repo_name_re.is_match(&repo.name) || repo.server.is_empty() {
-            errors.push(format!("Repository '{}' braucht einen gültigen Namen und eine Server-URL.", repo.name));
+            errors.push(format!(
+                "Repository '{}' braucht einen gültigen Namen und eine Server-URL.",
+                repo.name
+            ));
         }
     }
     if cfg.packages.presets.iter().any(|p| p == "gaming") && !cfg.repos.multilib {
@@ -748,7 +1095,12 @@ pub fn validate(cfg: &Config) -> (Vec<String>, Vec<String>) {
             errors.push(format!("Ungültiger Image-Name: {img}"));
         }
     }
-    let names: Vec<&str> = cfg.containers.stacks.iter().map(|s| s.name.as_str()).collect();
+    let names: Vec<&str> = cfg
+        .containers
+        .stacks
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
     for n in &names {
         if !stack_re().is_match(n) {
             errors.push(format!("Ungültiger Stack-Name '{n}' (a-z, 0-9, -)"));
@@ -770,10 +1122,14 @@ pub fn validate(cfg: &Config) -> (Vec<String>, Vec<String>) {
         warnings.push("KI-Modelle sind ausgewählt, aber Ollama ist deaktiviert.".to_string());
     }
     if cfg.ai.accel == "cuda" && cfg.packages.gpu != "nvidia" {
-        warnings.push("CUDA-Beschleunigung ohne NVIDIA-Treiber – bitte unter Pakete NVIDIA wählen.".to_string());
+        warnings.push(
+            "CUDA-Beschleunigung ohne NVIDIA-Treiber – bitte unter Pakete NVIDIA wählen."
+                .to_string(),
+        );
     }
     if matches!(cfg.ai.accel.as_str(), "cuda" | "rocm") && (cfg.ai.ollama || cfg.ai.dev) {
-        warnings.push("CUDA/ROCm sind mehrere GB groß – die ISO wird entsprechend größer.".to_string());
+        warnings
+            .push("CUDA/ROCm sind mehrere GB groß – die ISO wird entsprechend größer.".to_string());
     }
     if cfg.installer.enabled && cfg.packages.desktop == "none" {
         warnings.push(
@@ -800,7 +1156,10 @@ pub fn check_packages(names: &[String]) -> Vec<String> {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let re_de = Regex::new(r"target not found: (\S+)").unwrap();
     let re_en = Regex::new(r"Ziel nicht gefunden: (\S+)").unwrap();
-    let mut missing: Vec<String> = re_de.captures_iter(&stderr).map(|c| c[1].to_string()).collect();
+    let mut missing: Vec<String> = re_de
+        .captures_iter(&stderr)
+        .map(|c| c[1].to_string())
+        .collect();
     missing.extend(re_en.captures_iter(&stderr).map(|c| c[1].to_string()));
     dedup(missing)
 }
@@ -881,8 +1240,15 @@ mod tests {
         cfg.ai.ollama = true;
         cfg.ai.accel = "cuda".into();
         let pkgs = target_packages(&cfg);
-        for p in ["linux-zen", "linux-zen-headers", "nvidia-open-dkms", "docker", "nvidia-container-toolkit",
-                  "ollama", "ollama-cuda"] {
+        for p in [
+            "linux-zen",
+            "linux-zen-headers",
+            "nvidia-open-dkms",
+            "docker",
+            "nvidia-container-toolkit",
+            "ollama",
+            "ollama-cuda",
+        ] {
             assert!(pkgs.contains(&p.to_string()), "missing {p}");
         }
         let unique: std::collections::HashSet<_> = pkgs.iter().collect();
@@ -910,7 +1276,11 @@ mod tests {
         let mut cfg = default_config();
         cfg.containers.engine = "docker".into();
         cfg.containers.images = "nginx:alpine\npostgres:17".into();
-        let preset = stack_presets().into_iter().find(|(k, _)| *k == "open-webui").unwrap().1;
+        let preset = stack_presets()
+            .into_iter()
+            .find(|(k, _)| *k == "open-webui")
+            .unwrap()
+            .1;
         cfg.containers.stacks = vec![Stack {
             name: "open-webui".into(),
             title: preset.title.into(),
@@ -920,8 +1290,11 @@ mod tests {
         }];
         assert_eq!(
             container_images(&cfg),
-            vec!["nginx:alpine".to_string(), "postgres:17".to_string(),
-                 "ghcr.io/open-webui/open-webui:main".to_string()]
+            vec![
+                "nginx:alpine".to_string(),
+                "postgres:17".to_string(),
+                "ghcr.io/open-webui/open-webui:main".to_string()
+            ]
         );
     }
 
