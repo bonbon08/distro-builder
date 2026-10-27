@@ -3,7 +3,6 @@ use std::rc::Rc;
 use adw::prelude::*;
 use distro_builder_core::config as C;
 use gtk::glib;
-use gtk::prelude::*;
 
 use crate::ctx::{Ctx, ARCH_ASCII, LOGO_MODES};
 
@@ -37,11 +36,7 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .title("Akzentfarbe")
         .subtitle("ANSI_COLOR und Farbe der fastfetch-Schlüssel")
         .build();
-    let rgba = {
-        let mut c = gdk::RGBA::new(0.0, 0.0, 0.0, 1.0);
-        let _ = c.parse(&ctx.cfg.borrow().branding.color);
-        c
-    };
+    let rgba = gdk::RGBA::parse(&ctx.cfg.borrow().branding.color).unwrap_or(gdk::RGBA::new(0.0, 0.0, 0.0, 1.0));
     let dialog = gtk::ColorDialog::builder().with_alpha(false).build();
     let color_btn = gtk::ColorDialogButton::builder().dialog(&dialog).rgba(&rgba).valign(gtk::Align::Center).build();
     {

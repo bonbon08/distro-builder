@@ -9,9 +9,7 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use distro_builder_core::config::Config;
-use gio::prelude::*;
 use gtk::glib;
-use gtk::prelude::*;
 
 pub const APP_ID: &str = "io.github.bonbon08.DistroBuilder";
 
@@ -104,12 +102,10 @@ pub struct Ctx {
     pub shared: RefCell<Shared>,
     pub project_path: RefCell<Option<PathBuf>>,
     pub last_iso: RefCell<Option<PathBuf>>,
-    pub child: RefCell<Option<Child>>,
 
     pub window: adw::ApplicationWindow,
     pub toasts: adw::ToastOverlay,
     pub stack: gtk::Stack,
-    pub sidebar: gtk::ListBox,
     pub content_title: adw::WindowTitle,
     pub content_page: adw::NavigationPage,
     pub split: adw::NavigationSplitView,
@@ -225,7 +221,7 @@ impl Ctx {
             .build();
 
         let bp = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 700sp").unwrap());
-        bp.add_setter(&split, "collapsed", &true.to_value());
+        bp.add_setter(&split, "collapsed", Some(&true.to_value()));
         window.add_breakpoint(bp);
 
         let provider = gtk::CssProvider::new();
@@ -239,11 +235,9 @@ impl Ctx {
             shared: RefCell::new(Shared::default()),
             project_path: RefCell::new(None),
             last_iso: RefCell::new(None),
-            child: RefCell::new(None),
             window,
             toasts,
             stack,
-            sidebar: sidebar.clone(),
             content_title,
             content_page,
             split,
@@ -310,7 +304,7 @@ impl Ctx {
         let _ = distro_builder_core::config::save(&self.cfg.borrow(), &path);
     }
 
-    pub fn new_project(&self) {
+    pub fn new_project(self: &Rc<Self>) {
         *self.cfg.borrow_mut() = distro_builder_core::config::default_config();
         *self.project_path.borrow_mut() = None;
         self.rebuild();
@@ -700,10 +694,11 @@ impl Ctx {
                 filter.set_name(Some("Bilder"));
                 filter.add_pixbuf_formats();
                 dlg.set_default_filter(Some(&filter));
+                let window = ctx.window.clone();
                 let ctx = ctx.clone();
                 let refresh = refresh.clone();
                 let set = set.clone();
-                dlg.open(Some(&ctx.window), None::<&gio::Cancellable>, move |res| {
+                dlg.open(Some(&window), None::<&gio::Cancellable>, move |res| {
                     let Ok(file) = res else { return };
                     let Some(path) = file.path() else { return };
                     set(&mut ctx.cfg.borrow_mut(), path.to_string_lossy().into_owned());

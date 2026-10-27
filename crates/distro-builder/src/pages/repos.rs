@@ -3,7 +3,6 @@ use std::rc::Rc;
 use adw::prelude::*;
 use distro_builder_core::config::{self as C, CustomRepo};
 use gtk::glib;
-use gtk::prelude::*;
 
 use crate::ctx::Ctx;
 
