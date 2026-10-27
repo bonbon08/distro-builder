@@ -34,7 +34,12 @@ fn cmd_lines(cmd: &str, args: &[&str]) -> Vec<String> {
         .args(args)
         .output()
         .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).split_whitespace().map(str::to_string).collect())
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .split_whitespace()
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -131,14 +136,20 @@ pub fn list_disks() -> Vec<DiskDevice> {
         .collect()
 }
 
-pub const DISK_ROLES: &[(&str, &str)] =
-    &[("none", "Nicht verwenden"), ("home", "/home (Benutzerdaten)"), ("data", "Datenlaufwerk (/data)"),
-      ("raid", "btrfs-Spiegel der Systemplatte (RAID 1)")];
+pub const DISK_ROLES: &[(&str, &str)] = &[
+    ("none", "Nicht verwenden"),
+    ("home", "/home (Benutzerdaten)"),
+    ("data", "Datenlaufwerk (/data)"),
+    ("raid", "btrfs-Spiegel der Systemplatte (RAID 1)"),
+];
 
 pub fn has_offline_image() -> bool {
-    ["/run/archiso/copytoram/airootfs.sfs", "/run/archiso/bootmnt/arch/x86_64/airootfs.sfs"]
-        .iter()
-        .any(|p| Path::new(p).exists())
+    [
+        "/run/archiso/copytoram/airootfs.sfs",
+        "/run/archiso/bootmnt/arch/x86_64/airootfs.sfs",
+    ]
+    .iter()
+    .any(|p| Path::new(p).exists())
 }
 
 pub fn human(size: u64) -> String {

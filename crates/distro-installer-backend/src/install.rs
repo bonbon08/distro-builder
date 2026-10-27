@@ -13,8 +13,10 @@ use distro_builder_core::installer_conf::{InstallerConf, Selection};
 use crate::run::{spawn_merged, Runner};
 use crate::{out, progress};
 
-const SFS_CANDIDATES: [&str; 2] =
-    ["/run/archiso/copytoram/airootfs.sfs", "/run/archiso/bootmnt/arch/x86_64/airootfs.sfs"];
+const SFS_CANDIDATES: [&str; 2] = [
+    "/run/archiso/copytoram/airootfs.sfs",
+    "/run/archiso/bootmnt/arch/x86_64/airootfs.sfs",
+];
 
 fn find_sfs() -> Option<PathBuf> {
     for p in SFS_CANDIDATES {
@@ -22,7 +24,10 @@ fn find_sfs() -> Option<PathBuf> {
             return Some(PathBuf::from(p));
         }
     }
-    glob::glob("/run/archiso/bootmnt/*/x86_64/airootfs.sfs").ok()?.flatten().next()
+    glob::glob("/run/archiso/bootmnt/*/x86_64/airootfs.sfs")
+        .ok()?
+        .flatten()
+        .next()
 }
 
 pub fn target_packages(conf: &InstallerConf, sel: &Selection) -> Vec<String> {
@@ -43,7 +48,14 @@ pub fn install_offline(rt: &mut Runner, conf: &InstallerConf, sel: &Selection) -
     progress(0.10, "System wird von der ISO kopiert");
     let target = rt.target.to_str().unwrap().to_string();
     let sfs_str = sfs.to_str().unwrap().to_string();
-    let cmd = ["unsquashfs", "-f", "-d", target.as_str(), "-percentage", sfs_str.as_str()];
+    let cmd = [
+        "unsquashfs",
+        "-f",
+        "-d",
+        target.as_str(),
+        "-percentage",
+        sfs_str.as_str(),
+    ];
     out(&format!("$ {}", cmd.join(" ")));
     let (mut child, reader) = spawn_merged(&cmd, None)?;
     let mut br = BufReader::new(reader);
@@ -58,7 +70,10 @@ pub fn install_offline(rt: &mut Runner, conf: &InstallerConf, sel: &Selection) -
         if let Ok(pct) = l.parse::<i64>() {
             if pct != last {
                 last = pct;
-                progress(0.10 + 0.50 * pct as f64 / 100.0, &format!("System wird von der ISO kopiert ({pct} %)"));
+                progress(
+                    0.10 + 0.50 * pct as f64 / 100.0,
+                    &format!("System wird von der ISO kopiert ({pct} %)"),
+                );
             }
         } else if !l.is_empty() {
             out(l);
@@ -89,11 +104,24 @@ pub fn install_offline(rt: &mut Runner, conf: &InstallerConf, sel: &Selection) -
     let _ = std::fs::remove_dir_all(rt.target.join("etc/pacman.d/gnupg"));
     rt.chroot(&["pacman-key", "--init"], true, None)?;
     rt.chroot(&["pacman-key", "--populate"], true, None)?;
-    let _ = rt.chroot(&["gpgconf", "--homedir", "/etc/pacman.d/gnupg", "--kill", "all"], false, None);
+    let _ = rt.chroot(
+        &[
+            "gpgconf",
+            "--homedir",
+            "/etc/pacman.d/gnupg",
+            "--kill",
+            "all",
+        ],
+        false,
+        None,
+    );
 
     progress(0.66, "Nur-Live-Pakete werden entfernt");
-    let installed: std::collections::HashSet<String> =
-        rt.chroot_out(&["pacman", "-Qq"]).split_whitespace().map(str::to_string).collect();
+    let installed: std::collections::HashSet<String> = rt
+        .chroot_out(&["pacman", "-Qq"])
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
     let mut keep = std::collections::HashSet::new();
     for name in target_packages(conf, sel) {
         if installed.contains(&name) {
@@ -117,11 +145,18 @@ pub fn install_offline(rt: &mut Runner, conf: &InstallerConf, sel: &Selection) -
     asexplicit_args.extend(keep_sorted.iter());
     let _ = rt.chroot(&asexplicit_args, false, None);
     for _ in 0..5 {
-        let orphans: Vec<String> = rt.chroot_out(&["pacman", "-Qtdq"]).split_whitespace().map(str::to_string).collect();
+        let orphans: Vec<String> = rt
+            .chroot_out(&["pacman", "-Qtdq"])
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
         if orphans.is_empty() {
             break;
         }
-        out(&format!("Entferne {} Pakete, die nur im Live-System gebraucht werden", orphans.len()));
+        out(&format!(
+            "Entferne {} Pakete, die nur im Live-System gebraucht werden",
+            orphans.len()
+        ));
         let mut args: Vec<&str> = vec!["pacman", "-Rns", "--noconfirm"];
         args.extend(orphans.iter().map(String::as_str));
         let _ = rt.chroot(&args, false, None);
@@ -129,7 +164,12 @@ pub fn install_offline(rt: &mut Runner, conf: &InstallerConf, sel: &Selection) -
 
     // mkarchiso leert /boot – Kernel aus /usr/lib/modules wiederherstellen
     progress(0.70, "Kernel wird eingerichtet");
-    for pkgbase_file in glob::glob(&format!("{}/usr/lib/modules/*/pkgbase", rt.target.display()))?.flatten() {
+    for pkgbase_file in glob::glob(&format!(
+        "{}/usr/lib/modules/*/pkgbase",
+        rt.target.display()
+    ))?
+    .flatten()
+    {
         let pkgbase = std::fs::read_to_string(&pkgbase_file)?.trim().to_string();
         let src = pkgbase_file.parent().unwrap().join("vmlinuz");
         if src.exists() {
@@ -159,9 +199,22 @@ fn copy_tree_merge(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn install_online(rt: &Runner, conf: &InstallerConf, sel: &Selection, uefi: bool) -> Result<()> {
-    progress(0.10, "Pakete werden heruntergeladen und installiert (das dauert)");
-    let _ = rt.run(&["systemctl", "start", "pacman-init.service"], false, None, false);
+pub fn install_online(
+    rt: &Runner,
+    conf: &InstallerConf,
+    sel: &Selection,
+    uefi: bool,
+) -> Result<()> {
+    progress(
+        0.10,
+        "Pakete werden heruntergeladen und installiert (das dauert)",
+    );
+    let _ = rt.run(
+        &["systemctl", "start", "pacman-init.service"],
+        false,
+        None,
+        false,
+    );
     let mut pkgs = target_packages(conf, sel);
     if !uefi {
         pkgs.retain(|p| p != "efibootmgr");
@@ -178,7 +231,12 @@ pub fn install_online(rt: &Runner, conf: &InstallerConf, sel: &Selection, uefi: 
         if src.ends_with("/overlay") {
             copy_tree_merge(Path::new(&src), &rt.target)?;
         } else {
-            rt.run(&["cp", "-a", "--parents", &src, rt.target.to_str().unwrap()], true, None, false)?;
+            rt.run(
+                &["cp", "-a", "--parents", &src, rt.target.to_str().unwrap()],
+                true,
+                None,
+                false,
+            )?;
         }
     }
     for entry in glob::glob(&format!("{}/usr/local/bin/*", rt.target.display()))?.flatten() {
@@ -190,7 +248,12 @@ pub fn install_online(rt: &Runner, conf: &InstallerConf, sel: &Selection, uefi: 
 /// pacstrap mit Fortschrittsanzeige zwischen 10 % und 70 %.
 fn pacstrap(rt: &Runner, pkgs: &[String]) -> Result<()> {
     let target = rt.target.to_str().unwrap().to_string();
-    let mut cmd: Vec<String> = vec!["pacstrap".into(), "-C".into(), "/etc/pacman.conf".into(), target];
+    let mut cmd: Vec<String> = vec![
+        "pacstrap".into(),
+        "-C".into(),
+        "/etc/pacman.conf".into(),
+        target,
+    ];
     cmd.extend(pkgs.iter().cloned());
     out(&format!("$ {}", cmd.join(" ")));
     let cmd_refs: Vec<&str> = cmd.iter().map(String::as_str).collect();
@@ -208,7 +271,10 @@ fn pacstrap(rt: &Runner, pkgs: &[String]) -> Result<()> {
         if let Some(m) = re.captures(l) {
             let done: f64 = m[1].trim().parse().unwrap_or(0.0);
             let total: f64 = m[2].parse::<f64>().unwrap_or(1.0).max(1.0);
-            progress(0.25 + 0.45 * done / total, &format!("Installiere {} ({}/{})", &m[4], m[1].trim(), &m[2]));
+            progress(
+                0.25 + 0.45 * done / total,
+                &format!("Installiere {} ({}/{})", &m[4], m[1].trim(), &m[2]),
+            );
         } else if l.to_lowercase().contains("downloading") {
             progress(0.15, "Pakete werden heruntergeladen");
         }

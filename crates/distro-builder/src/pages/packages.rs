@@ -8,13 +8,29 @@ use crate::ctx::Ctx;
 
 pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
-    let base = adw::PreferencesGroup::builder().title("Grundsystem").build();
+    let base = adw::PreferencesGroup::builder()
+        .title("Grundsystem")
+        .build();
     page.add(&base);
 
-    let kernels: Vec<(String, String)> = C::kernels().into_iter().map(|(k, l)| (k.to_string(), l.to_string())).collect();
-    ctx.combo_row(&base, "Kernel", &kernels, |cfg| cfg.packages.kernel.clone(), |cfg, v| cfg.packages.kernel = v, None, false);
+    let kernels: Vec<(String, String)> = C::kernels()
+        .into_iter()
+        .map(|(k, l)| (k.to_string(), l.to_string()))
+        .collect();
+    ctx.combo_row(
+        &base,
+        "Kernel",
+        &kernels,
+        |cfg| cfg.packages.kernel.clone(),
+        |cfg, v| cfg.packages.kernel = v,
+        None,
+        false,
+    );
 
-    let desktops: Vec<(String, String)> = C::desktops().into_iter().map(|(k, v)| (k.to_string(), v.label.to_string())).collect();
+    let desktops: Vec<(String, String)> = C::desktops()
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.label.to_string()))
+        .collect();
     ctx.combo_row(
         &base,
         "Desktop-Umgebung",
@@ -24,7 +40,10 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         Some("Inklusive Display-Manager und automatischer Anmeldung im Live-System"),
         false,
     );
-    let gpus: Vec<(String, String)> = C::gpus().into_iter().map(|(k, v)| (k.to_string(), v.label.to_string())).collect();
+    let gpus: Vec<(String, String)> = C::gpus()
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.label.to_string()))
+        .collect();
     ctx.combo_row(
         &base,
         "Grafiktreiber",
@@ -41,11 +60,16 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         |cfg| cfg.packages.rescue_tools,
         |cfg, v| cfg.packages.rescue_tools = v,
     );
-    let pkg_count = adw::ActionRow::builder().title("Paketanzahl").css_classes(["property"]).build();
+    let pkg_count = adw::ActionRow::builder()
+        .title("Paketanzahl")
+        .css_classes(["property"])
+        .build();
     base.add(&pkg_count);
     ctx.shared.borrow_mut().pkg_count = Some(pkg_count);
 
-    let pre = adw::PreferencesGroup::builder().title("Paket-Sammlungen").build();
+    let pre = adw::PreferencesGroup::builder()
+        .title("Paket-Sammlungen")
+        .build();
     page.add(&pre);
     for (key, info) in C::presets() {
         let active = ctx.cfg.borrow().packages.presets.iter().any(|p| p == key);
@@ -74,11 +98,19 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .title("Eigene Pakete")
         .description("Paketnamen durch Leerzeichen oder Zeilen getrennt. Pakete aus eigenen Repos sind ebenfalls möglich.")
         .build();
-    let check_btn = gtk::Button::builder().label("Prüfen").css_classes(["flat"]).build();
+    let check_btn = gtk::Button::builder()
+        .label("Prüfen")
+        .css_classes(["flat"])
+        .build();
     custom.set_header_suffix(Some(&check_btn));
     page.add(&custom);
-    let custom_view =
-        ctx.textview_row(&custom, |cfg| cfg.packages.custom.clone(), |cfg, v| cfg.packages.custom = v, 100, true);
+    let custom_view = ctx.textview_row(
+        &custom,
+        |cfg| cfg.packages.custom.clone(),
+        |cfg, v| cfg.packages.custom = v,
+        100,
+        true,
+    );
     ctx.shared.borrow_mut().custom_pkg_view = Some(custom_view.clone());
 
     {
@@ -113,11 +145,21 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         });
     }
 
-    let search_grp = adw::PreferencesGroup::builder().title("Paketsuche").description("Durchsucht die lokale pacman-Datenbank").build();
+    let search_grp = adw::PreferencesGroup::builder()
+        .title("Paketsuche")
+        .description("Durchsucht die lokale pacman-Datenbank")
+        .build();
     page.add(&search_grp);
-    let search_entry = gtk::SearchEntry::builder().placeholder_text("z. B. kdenlive, neovim, obs …").margin_bottom(6).build();
+    let search_entry = gtk::SearchEntry::builder()
+        .placeholder_text("z. B. kdenlive, neovim, obs …")
+        .margin_bottom(6)
+        .build();
     search_grp.add(&search_entry);
-    let search_list = gtk::ListBox::builder().css_classes(["boxed-list"]).selection_mode(gtk::SelectionMode::None).visible(false).build();
+    let search_list = gtk::ListBox::builder()
+        .css_classes(["boxed-list"])
+        .selection_mode(gtk::SelectionMode::None)
+        .visible(false)
+        .build();
     search_grp.add(&search_list);
     {
         let mut shared = ctx.shared.borrow_mut();
@@ -172,7 +214,9 @@ fn run_search(ctx: &Rc<Ctx>, query: String) {
 
 fn show_results(ctx: &Rc<Ctx>, query: &str, results: Vec<C::PackageSearchResult>) {
     let shared = ctx.shared.borrow();
-    let (Some(entry), Some(list)) = (&shared.search_entry, &shared.search_list) else { return };
+    let (Some(entry), Some(list)) = (&shared.search_entry, &shared.search_list) else {
+        return;
+    };
     if entry.text().trim() != query {
         return;
     }
@@ -181,16 +225,24 @@ fn show_results(ctx: &Rc<Ctx>, query: &str, results: Vec<C::PackageSearchResult>
     if results.is_empty() {
         list.append(&adw::ActionRow::builder().title("Keine Treffer").build());
     }
-    let current: std::collections::HashSet<String> = C::custom_packages(&ctx.cfg.borrow()).into_iter().collect();
+    let current: std::collections::HashSet<String> =
+        C::custom_packages(&ctx.cfg.borrow()).into_iter().collect();
     for r in results {
         let row = adw::ActionRow::builder()
             .title(glib::markup_escape_text(&r.name))
-            .subtitle(glib::markup_escape_text(&format!("{} · {} — {}", r.repo, r.version, r.desc)))
+            .subtitle(glib::markup_escape_text(&format!(
+                "{} · {} — {}",
+                r.repo, r.version, r.desc
+            )))
             .subtitle_lines(2)
             .build();
         let has = current.contains(&r.name);
         let btn = gtk::Button::builder()
-            .icon_name(if has { "emblem-ok-symbolic" } else { "list-add-symbolic" })
+            .icon_name(if has {
+                "emblem-ok-symbolic"
+            } else {
+                "list-add-symbolic"
+            })
             .valign(gtk::Align::Center)
             .css_classes(["flat"])
             .tooltip_text("Hinzufügen")
@@ -204,14 +256,21 @@ fn show_results(ctx: &Rc<Ctx>, query: &str, results: Vec<C::PackageSearchResult>
 }
 
 fn add_package(ctx: &Rc<Ctx>, name: &str, btn: &gtk::Button) {
-    if C::custom_packages(&ctx.cfg.borrow()).iter().any(|p| p == name) {
+    if C::custom_packages(&ctx.cfg.borrow())
+        .iter()
+        .any(|p| p == name)
+    {
         return;
     }
     let view = ctx.shared.borrow().custom_pkg_view.clone();
     if let Some(view) = view {
         let buf = view.buffer();
         let text = ctx.cfg.borrow().packages.custom.trim_end().to_string();
-        let new_text = if text.is_empty() { name.to_string() } else { format!("{text}\n{name}") };
+        let new_text = if text.is_empty() {
+            name.to_string()
+        } else {
+            format!("{text}\n{name}")
+        };
         buf.set_text(&new_text);
     }
     btn.set_icon_name("emblem-ok-symbolic");

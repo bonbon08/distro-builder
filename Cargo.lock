@@ -248,6 +248,7 @@ dependencies = [
 name = "distro-installer"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "distro-builder-core",
  "gdk4",
  "gio",

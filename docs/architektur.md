@@ -3,11 +3,12 @@
 Distro Builder besteht aus zwei Teilen:
 
 1. **Builder** (läuft auf deinem Rechner): GTK-Oberfläche, Profil-Generator und Downloader
-2. **Live-System und Installer** (laufen in der ISO): Dateien aus `distrobuilder/templates/`
+2. **Live-System und Installer** (laufen in der ISO): die Binärdateien `distro-installer` und
+   `distro-installer-backend`, die der Builder beim Erzeugen des Profils ins Profil kopiert
 
 ```
- Oberfläche (ui.py)
-      │  Projekt-JSON (config.py)
+ Oberfläche (crates/distro-builder)
+      │  Projekt-JSON (distro-builder-core::config)
       ▼
  profile.generate() ──► ~/DistroBuilder/<id>/profile/   (archiso-Profil)
       │
@@ -36,7 +37,7 @@ erhalten; Modelle und Images werden nur einmal geladen.
 ## Das erzeugte Profil
 
 Grundlage ist `/usr/share/archiso/configs/releng`, das Profil des offiziellen Arch-ISOs. Daran
-ändert `profile.py` Folgendes:
+ändert `distro-builder-core::profile::generate()` Folgendes:
 
 | Datei | Änderung |
 |---|---|
@@ -77,7 +78,7 @@ Diese Dateien landen zweimal im Profil: direkt in `airootfs/` und als Kopie in
 | `/usr/local/bin/live-setup` + `live-setup.service` | legt beim Booten den Benutzer `live` an (ohne Passwort, sudo ohne Passwort) |
 | `/etc/systemd/system/display-manager.service` | Link auf sddm, gdm oder lightdm |
 | `/etc/sddm.conf.d/autologin.conf` bzw. gdm/lightdm | automatische Anmeldung als `live` |
-| `/usr/local/lib/distro-installer/{installer,backend}.py` | der Installer |
+| `/usr/local/bin/distro-installer`, `/usr/local/lib/distro-installer/distro-installer-backend` | der Installer (vorkompilierte Binärdateien, keine Vorlagen) |
 | `/etc/distro-installer.json` | Konfiguration für den Installer, siehe unten |
 | `/usr/share/applications/distro-installer.desktop` (+ Autostart) | Starter |
 | `/etc/vconsole.conf`, `/etc/X11/xorg.conf.d/00-keyboard.conf` | Tastaturlayout im Live-System |

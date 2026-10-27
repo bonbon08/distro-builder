@@ -65,17 +65,74 @@ fn settle(rt: &Runner, disk: &str, expected: usize) -> Result<Vec<String>> {
 }
 
 /// Creates and opens a LUKS2 container, returning `/dev/mapper/<name>`.
-fn luks_format(rt: &mut Runner, part: &str, name: &str, passphrase: &str, keyfile: Option<&str>) -> Result<String> {
+fn luks_format(
+    rt: &mut Runner,
+    part: &str,
+    name: &str,
+    passphrase: &str,
+    keyfile: Option<&str>,
+) -> Result<String> {
     out(&format!("Verschlüssele {part} (LUKS2) …"));
     if let Some(kf) = keyfile {
-        rt.run(&["cryptsetup", "luksFormat", "--type", "luks2", "--batch-mode", "--key-file", kf, part], true, None, false)?;
+        rt.run(
+            &[
+                "cryptsetup",
+                "luksFormat",
+                "--type",
+                "luks2",
+                "--batch-mode",
+                "--key-file",
+                kf,
+                part,
+            ],
+            true,
+            None,
+            false,
+        )?;
         if !passphrase.is_empty() {
-            rt.run(&["cryptsetup", "luksAddKey", "--key-file", kf, "--batch-mode", part, "-"], true, Some(passphrase.as_bytes()), false)?;
+            rt.run(
+                &[
+                    "cryptsetup",
+                    "luksAddKey",
+                    "--key-file",
+                    kf,
+                    "--batch-mode",
+                    part,
+                    "-",
+                ],
+                true,
+                Some(passphrase.as_bytes()),
+                false,
+            )?;
         }
-        rt.run(&["cryptsetup", "open", "--key-file", kf, part, name], true, None, false)?;
+        rt.run(
+            &["cryptsetup", "open", "--key-file", kf, part, name],
+            true,
+            None,
+            false,
+        )?;
     } else {
-        rt.run(&["cryptsetup", "luksFormat", "--type", "luks2", "--batch-mode", "--key-file", "-", part], true, Some(passphrase.as_bytes()), false)?;
-        rt.run(&["cryptsetup", "open", "--key-file", "-", part, name], true, Some(passphrase.as_bytes()), false)?;
+        rt.run(
+            &[
+                "cryptsetup",
+                "luksFormat",
+                "--type",
+                "luks2",
+                "--batch-mode",
+                "--key-file",
+                "-",
+                part,
+            ],
+            true,
+            Some(passphrase.as_bytes()),
+            false,
+        )?;
+        rt.run(
+            &["cryptsetup", "open", "--key-file", "-", part, name],
+            true,
+            Some(passphrase.as_bytes()),
+            false,
+        )?;
     }
     rt.opened_luks.push(name.to_string());
     Ok(format!("/dev/mapper/{name}"))
@@ -83,15 +140,30 @@ fn luks_format(rt: &mut Runner, part: &str, name: &str, passphrase: &str, keyfil
 
 fn mkfs(rt: &Runner, fs: &str, devices: &[String], label: &str, raid: bool) -> Result<()> {
     if fs == "btrfs" {
-        let mut cmd: Vec<String> = vec!["mkfs.btrfs".into(), "-f".into(), "-L".into(), truncate(label, 16)];
+        let mut cmd: Vec<String> = vec![
+            "mkfs.btrfs".into(),
+            "-f".into(),
+            "-L".into(),
+            truncate(label, 16),
+        ];
         if raid {
-            cmd.extend(["-d".to_string(), "raid1".to_string(), "-m".to_string(), "raid1".to_string()]);
+            cmd.extend([
+                "-d".to_string(),
+                "raid1".to_string(),
+                "-m".to_string(),
+                "raid1".to_string(),
+            ]);
         }
         cmd.extend(devices.iter().cloned());
         let refs: Vec<&str> = cmd.iter().map(String::as_str).collect();
         rt.run(&refs, true, None, false)?;
     } else {
-        rt.run(&["mkfs.ext4", "-F", "-L", &truncate(label, 16), &devices[0]], true, None, false)?;
+        rt.run(
+            &["mkfs.ext4", "-F", "-L", &truncate(label, 16), &devices[0]],
+            true,
+            None,
+            false,
+        )?;
     }
     Ok(())
 }
@@ -112,7 +184,10 @@ pub fn prepare_disks(rt: &mut Runner, sel: &Selection, gid: &str, uefi: bool) ->
     let pw = sel.luks_password.as_str();
     let disk = sel.disk.as_str();
     let extras = &sel.extra_disks;
-    let mut info = DiskInfo { fs: fs.to_string(), ..Default::default() };
+    let mut info = DiskInfo {
+        fs: fs.to_string(),
+        ..Default::default()
+    };
 
     // Systemplatte
     wipe(rt, disk)?;
@@ -120,17 +195,41 @@ pub fn prepare_disks(rt: &mut Runner, sel: &Selection, gid: &str, uefi: bool) ->
     let (boot_part, root_part);
     if uefi {
         rt.run(
-            &["sgdisk", "-n1:0:+1G", "-t1:ef00", "-c1:EFI", "-n2:0:0", &format!("-t2:{root_type}"), &format!("-c2:{gid}"), disk],
-            true, None, false,
+            &[
+                "sgdisk",
+                "-n1:0:+1G",
+                "-t1:ef00",
+                "-c1:EFI",
+                "-n2:0:0",
+                &format!("-t2:{root_type}"),
+                &format!("-c2:{gid}"),
+                disk,
+            ],
+            true,
+            None,
+            false,
         )?;
         let parts = settle(rt, disk, 2)?;
         boot_part = parts[0].clone();
         root_part = parts[1].clone();
     } else {
         rt.run(
-            &["sgdisk", "-n1:0:+1M", "-t1:ef02", "-c1:BIOS", "-n2:0:+1G", "-t2:8300", "-c2:boot", "-n3:0:0",
-              &format!("-t3:{root_type}"), &format!("-c3:{gid}"), disk],
-            true, None, false,
+            &[
+                "sgdisk",
+                "-n1:0:+1M",
+                "-t1:ef02",
+                "-c1:BIOS",
+                "-n2:0:+1G",
+                "-t2:8300",
+                "-c2:boot",
+                "-n3:0:0",
+                &format!("-t3:{root_type}"),
+                &format!("-c3:{gid}"),
+                disk,
+            ],
+            true,
+            None,
+            false,
         )?;
         let parts = settle(rt, disk, 3)?;
         boot_part = parts[1].clone();
@@ -141,7 +240,18 @@ pub fn prepare_disks(rt: &mut Runner, sel: &Selection, gid: &str, uefi: bool) ->
     let mut raid_parts = Vec::new();
     for (i, ex) in extras.iter().filter(|e| e.role == "raid").enumerate() {
         wipe(rt, &ex.path)?;
-        rt.run(&["sgdisk", "-n1:0:0", &format!("-t1:{root_type}"), &format!("-c1:{gid}-mirror{i}"), &ex.path], true, None, false)?;
+        rt.run(
+            &[
+                "sgdisk",
+                "-n1:0:0",
+                &format!("-t1:{root_type}"),
+                &format!("-c1:{gid}-mirror{i}"),
+                &ex.path,
+            ],
+            true,
+            None,
+            false,
+        )?;
         raid_parts.push(settle(rt, &ex.path, 1)?[0].clone());
     }
 
@@ -151,7 +261,11 @@ pub fn prepare_disks(rt: &mut Runner, sel: &Selection, gid: &str, uefi: bool) ->
     let mut root_devs = Vec::new();
     for (i, part) in all_root_parts.iter().enumerate() {
         if encrypt {
-            let name = if i == 0 { "cryptroot".to_string() } else { format!("cryptroot{}", i + 1) };
+            let name = if i == 0 {
+                "cryptroot".to_string()
+            } else {
+                format!("cryptroot{}", i + 1)
+            };
             root_devs.push(luks_format(rt, part, &name, pw, None)?);
             info.luks_root.push((uuid(rt, part)?, name));
         } else {
@@ -170,7 +284,12 @@ pub fn prepare_disks(rt: &mut Runner, sel: &Selection, gid: &str, uefi: bool) ->
             let _ = rt.run(&["btrfs", "device", "scan"], false, None, false);
         }
         rt.run(&["mount", &root_devs[0], &target_str], true, None, false)?;
-        let mut subvols = vec!["@".to_string(), "@log".to_string(), "@pkg".to_string(), "@snapshots".to_string()];
+        let mut subvols = vec![
+            "@".to_string(),
+            "@log".to_string(),
+            "@pkg".to_string(),
+            "@snapshots".to_string(),
+        ];
         if !separate_home {
             subvols.push("@home".to_string());
         }
@@ -178,12 +297,37 @@ pub fn prepare_disks(rt: &mut Runner, sel: &Selection, gid: &str, uefi: bool) ->
             subvols.push("@swap".to_string());
         }
         for sub in &subvols {
-            rt.run(&["btrfs", "subvolume", "create", &format!("{target_str}/{sub}")], true, None, false)?;
+            rt.run(
+                &[
+                    "btrfs",
+                    "subvolume",
+                    "create",
+                    &format!("{target_str}/{sub}"),
+                ],
+                true,
+                None,
+                false,
+            )?;
         }
         rt.run(&["umount", &target_str], true, None, false)?;
         let opts = "compress=zstd,noatime";
-        rt.run(&["mount", "-o", &format!("subvol=@,{opts}"), &root_devs[0], &target_str], true, None, false)?;
-        let mut mounts = vec![("@log", "var/log"), ("@pkg", "var/cache/pacman/pkg"), ("@snapshots", ".snapshots")];
+        rt.run(
+            &[
+                "mount",
+                "-o",
+                &format!("subvol=@,{opts}"),
+                &root_devs[0],
+                &target_str,
+            ],
+            true,
+            None,
+            false,
+        )?;
+        let mut mounts = vec![
+            ("@log", "var/log"),
+            ("@pkg", "var/cache/pacman/pkg"),
+            ("@snapshots", ".snapshots"),
+        ];
         if !separate_home {
             mounts.push(("@home", "home"));
         }
@@ -193,8 +337,23 @@ pub fn prepare_disks(rt: &mut Runner, sel: &Selection, gid: &str, uefi: bool) ->
         for (sub, mnt) in mounts {
             let full = rt.target.join(mnt);
             std::fs::create_dir_all(&full)?;
-            let o = if sub == "@swap" { "noatime".to_string() } else { opts.to_string() };
-            rt.run(&["mount", "-o", &format!("subvol={sub},{o}"), &root_devs[0], full.to_str().unwrap()], true, None, false)?;
+            let o = if sub == "@swap" {
+                "noatime".to_string()
+            } else {
+                opts.to_string()
+            };
+            rt.run(
+                &[
+                    "mount",
+                    "-o",
+                    &format!("subvol={sub},{o}"),
+                    &root_devs[0],
+                    full.to_str().unwrap(),
+                ],
+                true,
+                None,
+                false,
+            )?;
         }
     } else {
         rt.run(&["mount", &root_devs[0], &target_str], true, None, false)?;
@@ -204,26 +363,78 @@ pub fn prepare_disks(rt: &mut Runner, sel: &Selection, gid: &str, uefi: bool) ->
     let boot_dir = rt.target.join("boot");
     std::fs::create_dir_all(&boot_dir)?;
     if uefi {
-        rt.run(&["mkfs.fat", "-F32", "-n", "EFI", &boot_part], true, None, false)?;
-        rt.run(&["mount", "-o", "fmask=0077,dmask=0077", &boot_part, boot_dir.to_str().unwrap()], true, None, false)?;
+        rt.run(
+            &["mkfs.fat", "-F32", "-n", "EFI", &boot_part],
+            true,
+            None,
+            false,
+        )?;
+        rt.run(
+            &[
+                "mount",
+                "-o",
+                "fmask=0077,dmask=0077",
+                &boot_part,
+                boot_dir.to_str().unwrap(),
+            ],
+            true,
+            None,
+            false,
+        )?;
     } else {
-        rt.run(&["mkfs.ext4", "-F", "-L", "boot", &boot_part], true, None, false)?;
-        rt.run(&["mount", &boot_part, boot_dir.to_str().unwrap()], true, None, false)?;
+        rt.run(
+            &["mkfs.ext4", "-F", "-L", "boot", &boot_part],
+            true,
+            None,
+            false,
+        )?;
+        rt.run(
+            &["mount", &boot_part, boot_dir.to_str().unwrap()],
+            true,
+            None,
+            false,
+        )?;
     }
 
     // /home und Datenlaufwerke
     let mut data_n = 0u32;
-    for ex in extras.iter().filter(|e| e.role == "home" || e.role == "data") {
+    for ex in extras
+        .iter()
+        .filter(|e| e.role == "home" || e.role == "data")
+    {
         wipe(rt, &ex.path)?;
-        let ptype = if encrypt { "8309" } else if ex.role == "home" { "8302" } else { "8300" };
-        rt.run(&["sgdisk", "-n1:0:0", &format!("-t1:{ptype}"), &ex.path], true, None, false)?;
+        let ptype = if encrypt {
+            "8309"
+        } else if ex.role == "home" {
+            "8302"
+        } else {
+            "8300"
+        };
+        rt.run(
+            &["sgdisk", "-n1:0:0", &format!("-t1:{ptype}"), &ex.path],
+            true,
+            None,
+            false,
+        )?;
         let part = settle(rt, &ex.path, 1)?[0].clone();
         let (mnt, name, label) = if ex.role == "home" {
-            ("/home".to_string(), "crypthome".to_string(), "home".to_string())
+            (
+                "/home".to_string(),
+                "crypthome".to_string(),
+                "home".to_string(),
+            )
         } else {
             data_n += 1;
-            let suffix = if data_n == 1 { String::new() } else { data_n.to_string() };
-            (format!("/data{suffix}"), format!("cryptdata{suffix}"), format!("data{suffix}"))
+            let suffix = if data_n == 1 {
+                String::new()
+            } else {
+                data_n.to_string()
+            };
+            (
+                format!("/data{suffix}"),
+                format!("cryptdata{suffix}"),
+                format!("data{suffix}"),
+            )
         };
         let mut dev = part.clone();
         if encrypt {
@@ -234,14 +445,26 @@ pub fn prepare_disks(rt: &mut Runner, sel: &Selection, gid: &str, uefi: bool) ->
             std::fs::write(&keyfile, random_bytes(512))?;
             std::fs::set_permissions(&keyfile, std::fs::Permissions::from_mode(0o400))?;
             dev = luks_format(rt, &part, &name, pw, Some(keyfile.to_str().unwrap()))?;
-            info.crypttab.push(format!("{name} UUID={} /etc/cryptsetup-keys.d/{name}.key luks,discard", uuid(rt, &part)?));
+            info.crypttab.push(format!(
+                "{name} UUID={} /etc/cryptsetup-keys.d/{name}.key luks,discard",
+                uuid(rt, &part)?
+            ));
         }
         let mfs = if fs == "btrfs" { "btrfs" } else { "ext4" };
         mkfs(rt, mfs, &[dev.clone()], &label, false)?;
         let full = rt.target.join(mnt.trim_start_matches('/'));
         std::fs::create_dir_all(&full)?;
-        let opt = if fs == "btrfs" { "compress=zstd,noatime" } else { "defaults" };
-        rt.run(&["mount", "-o", opt, &dev, full.to_str().unwrap()], true, None, false)?;
+        let opt = if fs == "btrfs" {
+            "compress=zstd,noatime"
+        } else {
+            "defaults"
+        };
+        rt.run(
+            &["mount", "-o", opt, &dev, full.to_str().unwrap()],
+            true,
+            None,
+            false,
+        )?;
     }
     Ok(info)
 }
@@ -260,18 +483,41 @@ pub fn make_swap(rt: &Runner, sel: &Selection, info: &mut DiskInfo) -> Result<()
         }
         path = "/swap/swapfile".to_string();
         rt.run(
-            &["btrfs", "filesystem", "mkswapfile", "--size", &format!("{gb}g"), "--uuid", "clear",
-              rt.target.join("swap/swapfile").to_str().unwrap()],
-            true, None, false,
+            &[
+                "btrfs",
+                "filesystem",
+                "mkswapfile",
+                "--size",
+                &format!("{gb}g"),
+                "--uuid",
+                "clear",
+                rt.target.join("swap/swapfile").to_str().unwrap(),
+            ],
+            true,
+            None,
+            false,
         )?;
     } else {
         path = "/swapfile".to_string();
         rt.run(
-            &["mkswap", "-U", "clear", "--size", &format!("{gb}G"), "--file", rt.target.join("swapfile").to_str().unwrap()],
-            true, None, false,
+            &[
+                "mkswap",
+                "-U",
+                "clear",
+                "--size",
+                &format!("{gb}G"),
+                "--file",
+                rt.target.join("swapfile").to_str().unwrap(),
+            ],
+            true,
+            None,
+            false,
         )?;
     }
-    rt.append("/etc/fstab", &format!("\n# Swapfile\n{path} none swap defaults 0 0\n"))?;
+    rt.append(
+        "/etc/fstab",
+        &format!("\n# Swapfile\n{path} none swap defaults 0 0\n"),
+    )?;
     info.swap = Some(path);
     Ok(())
 }

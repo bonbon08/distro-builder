@@ -251,12 +251,10 @@ pub fn full_ref(image: &str) -> String {
 }
 
 pub fn container_tool() -> Option<&'static str> {
-    for tool in ["skopeo", "docker", "podman"] {
-        if which(tool) {
-            return Some(tool);
-        }
-    }
-    None
+    ["skopeo", "docker", "podman"]
+        .into_iter()
+        .find(|&tool| which(tool))
+        .map(|v| v as _)
 }
 
 fn which(prog: &str) -> bool {
@@ -427,10 +425,8 @@ pub fn prepare_assets(
         fs::create_dir_all(&target)?;
         for fname in wanted {
             let d = target.join(&fname);
-            if !d.exists() {
-                if fs::hard_link(idir.join(&fname), &d).is_err() {
-                    fs::copy(idir.join(&fname), &d)?;
-                }
+            if !d.exists() && fs::hard_link(idir.join(&fname), &d).is_err() {
+                fs::copy(idir.join(&fname), &d)?;
             }
         }
     }

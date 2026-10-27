@@ -21,7 +21,10 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         |cfg| cfg.branding.logo.clone(),
         |cfg, v| cfg.branding.logo = v,
     );
-    let modes: Vec<(String, String)> = LOGO_MODES.iter().map(|(v, l)| (v.to_string(), l.to_string())).collect();
+    let modes: Vec<(String, String)> = LOGO_MODES
+        .iter()
+        .map(|(v, l)| (v.to_string(), l.to_string()))
+        .collect();
     ctx.combo_row(
         &logo_grp,
         "Logo in fastfetch / neofetch",
@@ -36,9 +39,14 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .title("Akzentfarbe")
         .subtitle("ANSI_COLOR und Farbe der fastfetch-Schlüssel")
         .build();
-    let rgba = gdk::RGBA::parse(&ctx.cfg.borrow().branding.color).unwrap_or(gdk::RGBA::new(0.0, 0.0, 0.0, 1.0));
+    let rgba = gdk::RGBA::parse(&ctx.cfg.borrow().branding.color)
+        .unwrap_or(gdk::RGBA::new(0.0, 0.0, 0.0, 1.0));
     let dialog = gtk::ColorDialog::builder().with_alpha(false).build();
-    let color_btn = gtk::ColorDialogButton::builder().dialog(&dialog).rgba(&rgba).valign(gtk::Align::Center).build();
+    let color_btn = gtk::ColorDialogButton::builder()
+        .dialog(&dialog)
+        .rgba(&rgba)
+        .valign(gtk::Align::Center)
+        .build();
     {
         let ctx2 = ctx.clone();
         color_btn.connect_rgba_notify(move |b| {
@@ -71,7 +79,10 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         true,
     );
 
-    let prev_grp = adw::PreferencesGroup::builder().title("Vorschau").description("So ungefähr sieht fastfetch aus").build();
+    let prev_grp = adw::PreferencesGroup::builder()
+        .title("Vorschau")
+        .description("So ungefähr sieht fastfetch aus")
+        .build();
     page.add(&prev_grp);
     let box_ = gtk::Box::new(gtk::Orientation::Horizontal, 24);
     box_.add_css_class("ff-preview");
@@ -81,8 +92,17 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .height_request(160)
         .valign(gtk::Align::Start)
         .build();
-    let prev_ascii = gtk::Label::builder().xalign(0.0).yalign(0.0).valign(gtk::Align::Start).build();
-    let prev_info = gtk::Label::builder().xalign(0.0).yalign(0.0).valign(gtk::Align::Start).selectable(true).build();
+    let prev_ascii = gtk::Label::builder()
+        .xalign(0.0)
+        .yalign(0.0)
+        .valign(gtk::Align::Start)
+        .build();
+    let prev_info = gtk::Label::builder()
+        .xalign(0.0)
+        .yalign(0.0)
+        .valign(gtk::Align::Start)
+        .selectable(true)
+        .build();
     box_.append(&prev_pic);
     box_.append(&prev_ascii);
     box_.append(&prev_info);
@@ -123,7 +143,13 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .description("Wird nach dem Konsolen-Login angezeigt")
         .build();
     page.add(&motd_grp);
-    ctx.textview_row(&motd_grp, |cfg| cfg.branding.motd.clone(), |cfg, v| cfg.branding.motd = v, 70, false);
+    ctx.textview_row(
+        &motd_grp,
+        |cfg| cfg.branding.motd.clone(),
+        |cfg, v| cfg.branding.motd = v,
+        70,
+        false,
+    );
 
     update_preview(ctx);
     page
@@ -132,7 +158,8 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
 /// Mirrors ui.py's `update_preview`.
 pub fn update_preview(ctx: &Rc<Ctx>) {
     let shared = ctx.shared.borrow();
-    let (Some(prev_pic), Some(prev_ascii), Some(prev_info)) = (&shared.prev_pic, &shared.prev_ascii, &shared.prev_info)
+    let (Some(prev_pic), Some(prev_ascii), Some(prev_info)) =
+        (&shared.prev_pic, &shared.prev_ascii, &shared.prev_info)
     else {
         return;
     };
@@ -140,14 +167,26 @@ pub fn update_preview(ctx: &Rc<Ctx>) {
     let (b, g) = (&cfg.branding, &cfg.general);
     let color = &b.color;
     let mode = b.logo_mode.as_str();
-    let show_img = matches!(mode, "image" | "chafa") && !b.logo.is_empty() && std::path::Path::new(&b.logo).is_file();
+    let show_img = matches!(mode, "image" | "chafa")
+        && !b.logo.is_empty()
+        && std::path::Path::new(&b.logo).is_file();
     prev_pic.set_visible(show_img);
     if show_img {
         prev_pic.set_filename(Some(&b.logo));
     }
-    let ascii_text = if mode == "ascii" { b.ascii_logo.clone() } else if !show_img { ARCH_ASCII.to_string() } else { String::new() };
+    let ascii_text = if mode == "ascii" {
+        b.ascii_logo.clone()
+    } else if !show_img {
+        ARCH_ASCII.to_string()
+    } else {
+        String::new()
+    };
     prev_ascii.set_visible(!ascii_text.is_empty());
-    let ascii_color = if mode == "ascii" { color.as_str() } else { "#1793d1" };
+    let ascii_color = if mode == "ascii" {
+        color.as_str()
+    } else {
+        "#1793d1"
+    };
     prev_ascii.set_markup(&format!(
         "<span foreground=\"{}\">{}</span>",
         ascii_color,
@@ -155,8 +194,16 @@ pub fn update_preview(ctx: &Rc<Ctx>) {
     ));
 
     let desktop = C::desktop_info(&cfg).label.to_string();
-    let kernel = C::kernels().into_iter().find(|(k, _)| *k == cfg.packages.kernel).map(|(_, l)| l).unwrap_or("linux");
-    let host = if g.hostname.is_empty() { "host".to_string() } else { g.hostname.clone() };
+    let kernel = C::kernels()
+        .into_iter()
+        .find(|(k, _)| *k == cfg.packages.kernel)
+        .map(|(_, l)| l)
+        .unwrap_or("linux");
+    let host = if g.hostname.is_empty() {
+        "host".to_string()
+    } else {
+        g.hostname.clone()
+    };
     let host_esc = glib::markup_escape_text(&host);
     let mut lines = vec![
         format!(
@@ -180,10 +227,12 @@ pub fn update_preview(ctx: &Rc<Ctx>) {
             glib::markup_escape_text(&v)
         ));
     }
-    let palette: String = ["#15161e", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6"]
-        .iter()
-        .map(|c| format!("<span background=\"{c}\">   </span>"))
-        .collect();
+    let palette: String = [
+        "#15161e", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6",
+    ]
+    .iter()
+    .map(|c| format!("<span background=\"{c}\">   </span>"))
+    .collect();
     lines.push(String::new());
     lines.push(palette);
     prev_info.set_markup(&lines.join("\n"));

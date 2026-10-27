@@ -4,7 +4,7 @@
 
 use std::cell::RefCell;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::rc::Rc;
 
 use adw::prelude::*;
@@ -31,7 +31,10 @@ pub const PAGES: &[(&str, &str, &str)] = &[
 ];
 
 pub const LOGO_MODES: &[(&str, &str)] = &[
-    ("image", "Bild – echte Pixel in Kitty/Konsole/WezTerm, sonst Zeichengrafik"),
+    (
+        "image",
+        "Bild – echte Pixel in Kitty/Konsole/WezTerm, sonst Zeichengrafik",
+    ),
     ("chafa", "Bild als Zeichengrafik (chafa) – überall gleich"),
     ("ascii", "Eigenes ASCII-Art"),
     ("builtin", "Arch-Standardlogo"),
@@ -116,7 +119,9 @@ pub struct Ctx {
 }
 
 pub fn autosave_path() -> PathBuf {
-    glib::user_config_dir().join("distro-builder").join("autosave.json")
+    glib::user_config_dir()
+        .join("distro-builder")
+        .join("autosave.json")
 }
 
 fn list_locales() -> Vec<String> {
@@ -138,7 +143,10 @@ fn list_locales() -> Vec<String> {
 }
 
 fn cmd_lines(cmd: &[&str], fallback: &[&str]) -> Vec<String> {
-    let out = Command::new(cmd[0]).args(&cmd[1..]).stderr(Stdio::null()).output();
+    let out = Command::new(cmd[0])
+        .args(&cmd[1..])
+        .stderr(Stdio::null())
+        .output();
     match out {
         Ok(o) if o.status.success() => {
             let text = String::from_utf8_lossy(&o.stdout);
@@ -158,7 +166,10 @@ impl Ctx {
         let cfg = load_autosave();
 
         let toasts = adw::ToastOverlay::new();
-        let split = adw::NavigationSplitView::builder().min_sidebar_width(220.0).max_sidebar_width(280.0).build();
+        let split = adw::NavigationSplitView::builder()
+            .min_sidebar_width(220.0)
+            .max_sidebar_width(280.0)
+            .build();
         toasts.set_child(Some(&split));
 
         // Sidebar.
@@ -169,7 +180,9 @@ impl Ctx {
             &format!("Version {}", env!("CARGO_PKG_VERSION")),
         )));
         side_view.add_top_bar(&side_header);
-        let sidebar = gtk::ListBox::builder().css_classes(["navigation-sidebar"]).build();
+        let sidebar = gtk::ListBox::builder()
+            .css_classes(["navigation-sidebar"])
+            .build();
         for (key, label, icon) in PAGES {
             let row = gtk::ListBoxRow::new();
             row.set_widget_name(key);
@@ -184,7 +197,10 @@ impl Ctx {
             row.set_child(Some(&box_));
             sidebar.append(&row);
         }
-        let sidebar_scroll = gtk::ScrolledWindow::builder().child(&sidebar).vexpand(true).build();
+        let sidebar_scroll = gtk::ScrolledWindow::builder()
+            .child(&sidebar)
+            .vexpand(true)
+            .build();
         side_view.set_content(Some(&sidebar_scroll));
         let sidebar_page = adw::NavigationPage::new(&side_view, "Distro Builder");
         split.set_sidebar(Some(&sidebar_page));
@@ -204,10 +220,15 @@ impl Ctx {
             .tooltip_text("Projekt")
             .build();
         content_header.pack_end(&menu_btn);
-        let save_btn = gtk::Button::builder().icon_name("document-save-symbolic").tooltip_text("Projekt speichern (Strg+S)").build();
+        let save_btn = gtk::Button::builder()
+            .icon_name("document-save-symbolic")
+            .tooltip_text("Projekt speichern (Strg+S)")
+            .build();
         content_header.pack_end(&save_btn);
         content_view.add_top_bar(&content_header);
-        let stack = gtk::Stack::builder().transition_type(gtk::StackTransitionType::Crossfade).build();
+        let stack = gtk::Stack::builder()
+            .transition_type(gtk::StackTransitionType::Crossfade)
+            .build();
         content_view.set_content(Some(&stack));
         let content_page = adw::NavigationPage::new(&content_view, "Allgemein");
         split.set_content(Some(&content_page));
@@ -227,7 +248,11 @@ impl Ctx {
         let provider = gtk::CssProvider::new();
         provider.load_from_string(CSS);
         if let Some(display) = gdk::Display::default() {
-            gtk::style_context_add_provider_for_display(&display, &provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &provider,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
         }
 
         let ctx = Rc::new(Ctx {
@@ -242,7 +267,10 @@ impl Ctx {
             content_page,
             split,
             locales: list_locales(),
-            timezones: cmd_lines(&["timedatectl", "list-timezones"], &["UTC", "Europe/Berlin"]),
+            timezones: cmd_lines(
+                &["timedatectl", "list-timezones"],
+                &["UTC", "Europe/Berlin"],
+            ),
             layouts: cmd_lines(&["localectl", "list-x11-keymap-layouts"], &["de", "us"]),
         });
 
@@ -263,22 +291,34 @@ impl Ctx {
         }
 
         let actions = [
-            ("new", Box::new({
-                let ctx2 = ctx.clone();
-                move || ctx2.new_project()
-            }) as Box<dyn Fn()>),
-            ("open", Box::new({
-                let ctx2 = ctx.clone();
-                move || ctx2.open_project()
-            }) as Box<dyn Fn()>),
-            ("save-as", Box::new({
-                let ctx2 = ctx.clone();
-                move || ctx2.save_as()
-            }) as Box<dyn Fn()>),
-            ("save", Box::new({
-                let ctx2 = ctx.clone();
-                move || ctx2.save_project()
-            }) as Box<dyn Fn()>),
+            (
+                "new",
+                Box::new({
+                    let ctx2 = ctx.clone();
+                    move || ctx2.new_project()
+                }) as Box<dyn Fn()>,
+            ),
+            (
+                "open",
+                Box::new({
+                    let ctx2 = ctx.clone();
+                    move || ctx2.open_project()
+                }) as Box<dyn Fn()>,
+            ),
+            (
+                "save-as",
+                Box::new({
+                    let ctx2 = ctx.clone();
+                    move || ctx2.save_as()
+                }) as Box<dyn Fn()>,
+            ),
+            (
+                "save",
+                Box::new({
+                    let ctx2 = ctx.clone();
+                    move || ctx2.save_project()
+                }) as Box<dyn Fn()>,
+            ),
         ];
         for (name, cb) in actions {
             let action = gio::SimpleAction::new(name, None);
@@ -328,7 +368,9 @@ impl Ctx {
                     ctx.rebuild();
                     ctx.toast(&format!(
                         "Projekt geladen: {}",
-                        path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                        path.file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default()
                     ));
                 }
                 Err(e) => ctx.error("Projekt konnte nicht geladen werden", &e.to_string()),
@@ -352,7 +394,10 @@ impl Ctx {
 
     pub fn save_as(self: &Rc<Self>) {
         let initial = format!("{}.json", self.cfg.borrow().general.id);
-        let dlg = gtk::FileDialog::builder().title("Projekt speichern").initial_name(initial).build();
+        let dlg = gtk::FileDialog::builder()
+            .title("Projekt speichern")
+            .initial_name(initial)
+            .build();
         let ctx = self.clone();
         dlg.save(Some(&self.window), None::<&gio::Cancellable>, move |res| {
             let Ok(file) = res else { return };
@@ -369,7 +414,10 @@ impl Ctx {
     }
 
     pub fn error(&self, heading: &str, body: &str) {
-        let dlg = adw::AlertDialog::builder().heading(heading).body(body).build();
+        let dlg = adw::AlertDialog::builder()
+            .heading(heading)
+            .body(body)
+            .build();
         dlg.add_response("ok", "OK");
         dlg.present(Some(&self.window));
     }
@@ -377,7 +425,11 @@ impl Ctx {
     pub fn on_nav(self: &Rc<Self>, row: Option<gtk::ListBoxRow>) {
         let Some(row) = row else { return };
         let key = row.widget_name().to_string();
-        let label = PAGES.iter().find(|(k, _, _)| *k == key).map(|(_, l, _)| *l).unwrap_or("");
+        let label = PAGES
+            .iter()
+            .find(|(k, _, _)| *k == key)
+            .map(|(_, l, _)| *l)
+            .unwrap_or("");
         self.stack.set_visible_child_name(&key);
         self.content_title.set_title(label);
         self.content_page.set_title(label);
@@ -398,8 +450,11 @@ impl Ctx {
         let shared = self.shared.borrow();
         if let Some(label) = &shared.pacman_label {
             let text = distro_builder_core::profile::pacman_conf(&self.cfg.borrow());
-            let stripped: String =
-                text.lines().filter(|l| !l.starts_with('#')).collect::<Vec<_>>().join("\n");
+            let stripped: String = text
+                .lines()
+                .filter(|l| !l.starts_with('#'))
+                .collect::<Vec<_>>()
+                .join("\n");
             label.set_text(stripped.trim());
         }
     }
@@ -408,7 +463,9 @@ impl Ctx {
         let shared = self.shared.borrow();
         if let Some(row) = &shared.pkg_count {
             let n = distro_builder_core::config::target_packages(&self.cfg.borrow()).len();
-            row.set_subtitle(&format!("{n} Pakete/Gruppen für das installierte System (ohne Abhängigkeiten)"));
+            row.set_subtitle(&format!(
+                "{n} Pakete/Gruppen für das installierte System (ohne Abhängigkeiten)"
+            ));
         }
     }
 
@@ -528,7 +585,10 @@ impl Ctx {
         set: impl Fn(&mut Config, String) + 'static,
         on_change: Option<Box<dyn Fn(&Rc<Ctx>, &str)>>,
     ) -> adw::EntryRow {
-        let row = adw::EntryRow::builder().title(title).text(get(&self.cfg.borrow())).build();
+        let row = adw::EntryRow::builder()
+            .title(title)
+            .text(get(&self.cfg.borrow()))
+            .build();
         let ctx = self.clone();
         row.connect_changed(move |r| {
             let text = r.text().to_string();
@@ -550,7 +610,10 @@ impl Ctx {
         get: impl Fn(&Config) -> bool + 'static,
         set: impl Fn(&mut Config, bool) + 'static,
     ) -> adw::SwitchRow {
-        let row = adw::SwitchRow::builder().title(title).active(get(&self.cfg.borrow())).build();
+        let row = adw::SwitchRow::builder()
+            .title(title)
+            .active(get(&self.cfg.borrow()))
+            .build();
         if let Some(s) = subtitle {
             row.set_subtitle(s);
         }
@@ -575,7 +638,11 @@ impl Ctx {
     ) -> adw::ComboRow {
         let labels: Vec<&str> = options.iter().map(|(_, l)| l.as_str()).collect();
         let model = gtk::StringList::new(&labels);
-        let row = adw::ComboRow::builder().title(title).model(&model).enable_search(search).build();
+        let row = adw::ComboRow::builder()
+            .title(title)
+            .model(&model)
+            .enable_search(search)
+            .build();
         if search {
             row.set_expression(Some(&gtk::PropertyExpression::new(
                 gtk::StringObject::static_type(),
@@ -623,11 +690,16 @@ impl Ctx {
         view.buffer().set_text(&get(&self.cfg.borrow()));
         let ctx = self.clone();
         view.buffer().connect_changed(move |buf| {
-            let text = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
+            let text = buf
+                .text(&buf.start_iter(), &buf.end_iter(), false)
+                .to_string();
             set(&mut ctx.cfg.borrow_mut(), text);
             ctx.changed();
         });
-        let scroller = gtk::ScrolledWindow::builder().child(&view).min_content_height(height).build();
+        let scroller = gtk::ScrolledWindow::builder()
+            .child(&view)
+            .min_content_height(height)
+            .build();
         let frame = gtk::Frame::builder().child(&scroller).build();
         grp.add(&frame);
         view
@@ -654,7 +726,10 @@ impl Ctx {
             .css_classes(["flat"])
             .tooltip_text("Entfernen")
             .build();
-        let pick = gtk::Button::builder().label("Wählen …").valign(gtk::Align::Center).build();
+        let pick = gtk::Button::builder()
+            .label("Wählen …")
+            .valign(gtk::Align::Center)
+            .build();
 
         let get: Rc<dyn Fn(&Config) -> String> = Rc::new(get);
         let set: Rc<dyn Fn(&mut Config, String)> = Rc::new(set);
@@ -701,7 +776,10 @@ impl Ctx {
                 dlg.open(Some(&window), None::<&gio::Cancellable>, move |res| {
                     let Ok(file) = res else { return };
                     let Some(path) = file.path() else { return };
-                    set(&mut ctx.cfg.borrow_mut(), path.to_string_lossy().into_owned());
+                    set(
+                        &mut ctx.cfg.borrow_mut(),
+                        path.to_string_lossy().into_owned(),
+                    );
                     refresh();
                     ctx.changed();
                 });
@@ -726,5 +804,6 @@ impl Ctx {
 }
 
 fn load_autosave() -> Config {
-    distro_builder_core::config::load(&autosave_path()).unwrap_or_else(|_| distro_builder_core::config::default_config())
+    distro_builder_core::config::load(&autosave_path())
+        .unwrap_or_else(|_| distro_builder_core::config::default_config())
 }

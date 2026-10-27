@@ -956,15 +956,15 @@ pub fn generate(
         perms.push((e.clone(), "0:0:755".to_string()));
     }
     rebrand_boot(profile, &g.name)?;
-    if !cfg.branding.wallpaper.is_empty() {
-        if save_image(
+    if !cfg.branding.wallpaper.is_empty()
+        && save_image(
             Path::new(&cfg.branding.wallpaper),
             &profile.join("syslinux/splash.png"),
             None,
             Some((640, 480)),
-        ) {
-            log("Bootmenü-Hintergrund ersetzt");
-        }
+        )
+    {
+        log("Bootmenü-Hintergrund ersetzt");
     }
 
     // Desktop-Live-Umgebung

@@ -11,32 +11,57 @@ use crate::ctx::Ctx;
 
 const BUILD_STAGES: &[(&str, f64, &str)] = &[
     ("Installing packages to", 0.04, "Pakete werden installiert"),
-    ("Creating a list of installed packages", 0.52, "Paketliste wird erstellt"),
+    (
+        "Creating a list of installed packages",
+        0.52,
+        "Paketliste wird erstellt",
+    ),
     ("Preparing kernel and initrd", 0.56, "Kernel und Initramfs"),
-    ("Creating SquashFS image", 0.60, "SquashFS-Abbild wird komprimiert (dauert)"),
+    (
+        "Creating SquashFS image",
+        0.60,
+        "SquashFS-Abbild wird komprimiert (dauert)",
+    ),
     ("Creating checksum", 0.86, "Prüfsummen werden erstellt"),
     ("Setting up SYSLINUX", 0.88, "Bootloader wird eingerichtet"),
-    ("Setting up systemd-boot", 0.89, "Bootloader wird eingerichtet"),
+    (
+        "Setting up systemd-boot",
+        0.89,
+        "Bootloader wird eingerichtet",
+    ),
     ("Creating ISO image", 0.92, "ISO-Datei wird geschrieben"),
     ("Done!", 1.0, "Fertig"),
 ];
 
 pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
-    let req = adw::PreferencesGroup::builder().title("Voraussetzungen").build();
+    let req = adw::PreferencesGroup::builder()
+        .title("Voraussetzungen")
+        .build();
     page.add(&req);
     let archiso_row = adw::ActionRow::builder().title("archiso").build();
-    let archiso_btn = gtk::Button::builder().label("Installieren").valign(gtk::Align::Center).build();
+    let archiso_btn = gtk::Button::builder()
+        .label("Installieren")
+        .valign(gtk::Align::Center)
+        .build();
     {
         let ctx2 = ctx.clone();
         archiso_btn.connect_clicked(move |_| install_pkg(&ctx2, "archiso"));
     }
     archiso_row.add_suffix(&archiso_btn);
     req.add(&archiso_row);
-    let space_row = adw::ActionRow::builder().title("Freier Speicher").css_classes(["property"]).build();
+    let space_row = adw::ActionRow::builder()
+        .title("Freier Speicher")
+        .css_classes(["property"])
+        .build();
     req.add(&space_row);
-    let skopeo_row = adw::ActionRow::builder().title("Container-Images vorladen").build();
-    let skopeo_btn = gtk::Button::builder().label("skopeo installieren").valign(gtk::Align::Center).build();
+    let skopeo_row = adw::ActionRow::builder()
+        .title("Container-Images vorladen")
+        .build();
+    let skopeo_btn = gtk::Button::builder()
+        .label("skopeo installieren")
+        .valign(gtk::Align::Center)
+        .build();
     {
         let ctx2 = ctx.clone();
         skopeo_btn.connect_clicked(move |_| install_pkg(&ctx2, "skopeo"));
@@ -47,15 +72,30 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     let out = adw::PreferencesGroup::builder().title("Ausgabe").build();
     page.add(&out);
     let dir_row = adw::ActionRow::builder().title("Projektordner").build();
-    let pick = gtk::Button::builder().icon_name("folder-open-symbolic").valign(gtk::Align::Center).css_classes(["flat"]).build();
+    let pick = gtk::Button::builder()
+        .icon_name("folder-open-symbolic")
+        .valign(gtk::Align::Center)
+        .css_classes(["flat"])
+        .build();
     {
         let ctx2 = ctx.clone();
         pick.connect_clicked(move |_| pick_dir(&ctx2));
     }
     dir_row.add_suffix(&pick);
     out.add(&dir_row);
-    let compressions = vec![("zstd".to_string(), "zstd – schneller Build".to_string()), ("xz".to_string(), "xz – kleinere ISO".to_string())];
-    ctx.combo_row(&out, "Kompression", &compressions, |cfg| cfg.build.compression.clone(), |cfg, v| cfg.build.compression = v, None, false);
+    let compressions = vec![
+        ("zstd".to_string(), "zstd – schneller Build".to_string()),
+        ("xz".to_string(), "xz – kleinere ISO".to_string()),
+    ];
+    ctx.combo_row(
+        &out,
+        "Kompression",
+        &compressions,
+        |cfg| cfg.build.compression.clone(),
+        |cfg, v| cfg.build.compression = v,
+        None,
+        false,
+    );
 
     let act = adw::PreferencesGroup::new();
     page.add(&act);
@@ -63,9 +103,19 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     btns.set_halign(gtk::Align::Center);
     btns.set_margin_top(6);
     btns.set_margin_bottom(6);
-    let profile_btn = gtk::Button::builder().label("Nur Profil erzeugen").css_classes(["pill"]).build();
-    let build_btn = gtk::Button::builder().label("ISO bauen").css_classes(["pill", "suggested-action"]).build();
-    let cancel_btn = gtk::Button::builder().label("Abbrechen").css_classes(["pill", "destructive-action"]).visible(false).build();
+    let profile_btn = gtk::Button::builder()
+        .label("Nur Profil erzeugen")
+        .css_classes(["pill"])
+        .build();
+    let build_btn = gtk::Button::builder()
+        .label("ISO bauen")
+        .css_classes(["pill", "suggested-action"])
+        .build();
+    let cancel_btn = gtk::Button::builder()
+        .label("Abbrechen")
+        .css_classes(["pill", "destructive-action"])
+        .visible(false)
+        .build();
     {
         let ctx2 = ctx.clone();
         profile_btn.connect_clicked(move |_| on_profile_only(&ctx2));
@@ -83,9 +133,16 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     }
     act.add(&btns);
 
-    let prog = adw::PreferencesGroup::builder().title("Fortschritt").build();
+    let prog = adw::PreferencesGroup::builder()
+        .title("Fortschritt")
+        .build();
     page.add(&prog);
-    let build_status = gtk::Label::builder().label("Bereit").xalign(0.0).css_classes(["dim-label"]).margin_bottom(6).build();
+    let build_status = gtk::Label::builder()
+        .label("Bereit")
+        .xalign(0.0)
+        .css_classes(["dim-label"])
+        .margin_bottom(6)
+        .build();
     let build_bar = gtk::ProgressBar::builder().margin_bottom(10).build();
     prog.add(&build_status);
     prog.add(&build_bar);
@@ -96,13 +153,25 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .wrap_mode(gtk::WrapMode::Char)
         .css_classes(["log-view"])
         .build();
-    let log_scroll = gtk::ScrolledWindow::builder().child(&log_view).min_content_height(280).build();
+    let log_scroll = gtk::ScrolledWindow::builder()
+        .child(&log_view)
+        .min_content_height(280)
+        .build();
     prog.add(&gtk::Frame::builder().child(&log_scroll).build());
 
-    let result_grp = adw::PreferencesGroup::builder().title("Ergebnis").visible(false).build();
+    let result_grp = adw::PreferencesGroup::builder()
+        .title("Ergebnis")
+        .visible(false)
+        .build();
     page.add(&result_grp);
-    let iso_row = adw::ActionRow::builder().title("ISO-Datei").subtitle_selectable(true).build();
-    let open_btn = gtk::Button::builder().label("Ordner öffnen").valign(gtk::Align::Center).build();
+    let iso_row = adw::ActionRow::builder()
+        .title("ISO-Datei")
+        .subtitle_selectable(true)
+        .build();
+    let open_btn = gtk::Button::builder()
+        .label("Ordner öffnen")
+        .valign(gtk::Align::Center)
+        .build();
     {
         let ctx2 = ctx.clone();
         open_btn.connect_clicked(move |_| {
@@ -113,7 +182,11 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
             }
         });
     }
-    let qemu_btn = gtk::Button::builder().label("In VM testen").valign(gtk::Align::Center).css_classes(["suggested-action"]).build();
+    let qemu_btn = gtk::Button::builder()
+        .label("In VM testen")
+        .valign(gtk::Align::Center)
+        .css_classes(["suggested-action"])
+        .build();
     {
         let ctx2 = ctx.clone();
         qemu_btn.connect_clicked(move |_| run_vm(&ctx2));
@@ -147,7 +220,9 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
 
 pub fn refresh_build_info(ctx: &Rc<Ctx>) {
     let shared = ctx.shared.borrow();
-    let Some(archiso_row) = &shared.archiso_row else { return };
+    let Some(archiso_row) = &shared.archiso_row else {
+        return;
+    };
     let cfg = ctx.cfg.borrow();
     let need_images = !C::container_images(&cfg).is_empty() && cfg.containers.preload;
     if let Some(row) = &shared.skopeo_row {
@@ -162,7 +237,11 @@ pub fn refresh_build_info(ctx: &Rc<Ctx>) {
         btn.set_visible(F::container_tool().is_none());
     }
     let has_archiso = which("mkarchiso") && Path::new(P::RELENG).is_dir();
-    archiso_row.set_subtitle(if has_archiso { "\u{2714} installiert" } else { "\u{2718} nicht installiert – wird zum Bauen benötigt" });
+    archiso_row.set_subtitle(if has_archiso {
+        "\u{2714} installiert"
+    } else {
+        "\u{2718} nicht installiert – wird zum Bauen benötigt"
+    });
     if let Some(btn) = &shared.archiso_btn {
         btn.set_visible(!has_archiso);
     }
@@ -181,7 +260,11 @@ pub fn refresh_build_info(ctx: &Rc<Ctx>) {
         match free_space_gb(&probe) {
             Some(free) => row.set_subtitle(&format!(
                 "{free:.1} GB frei{}",
-                if free < 20.0 { "  \u{26a0} empfohlen: mind. 20 GB" } else { "" }
+                if free < 20.0 {
+                    "  \u{26a0} empfohlen: mind. 20 GB"
+                } else {
+                    ""
+                }
             )),
             None => row.set_subtitle("unbekannt"),
         }
@@ -203,7 +286,9 @@ pub fn refresh_build_info(ctx: &Rc<Ctx>) {
 }
 
 fn which(prog: &str) -> bool {
-    std::env::var_os("PATH").map(|p| std::env::split_paths(&p).any(|d| d.join(prog).is_file())).unwrap_or(false)
+    std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).any(|d| d.join(prog).is_file()))
+        .unwrap_or(false)
 }
 
 fn expand_home(p: &str) -> PathBuf {
@@ -223,8 +308,16 @@ fn dirs_home() -> Option<PathBuf> {
 /// rather than binding `statvfs` directly, to avoid hand-rolling a
 /// platform-specific struct layout.
 fn free_space_gb(path: &Path) -> Option<f64> {
-    let probe = if path.as_os_str().is_empty() { Path::new("/") } else { path };
-    let out = std::process::Command::new("df").args(["-k", "--output=avail"]).arg(probe).output().ok()?;
+    let probe = if path.as_os_str().is_empty() {
+        Path::new("/")
+    } else {
+        path
+    };
+    let out = std::process::Command::new("df")
+        .args(["-k", "--output=avail"])
+        .arg(probe)
+        .output()
+        .ok()?;
     if !out.status.success() {
         return None;
     }
@@ -234,7 +327,9 @@ fn free_space_gb(path: &Path) -> Option<f64> {
 }
 
 fn pick_dir(ctx: &Rc<Ctx>) {
-    let dlg = gtk::FileDialog::builder().title("Projektordner wählen").build();
+    let dlg = gtk::FileDialog::builder()
+        .title("Projektordner wählen")
+        .build();
     let ctx2 = ctx.clone();
     dlg.select_folder(Some(&ctx.window), None::<&gio::Cancellable>, move |res| {
         let Ok(file) = res else { return };
@@ -248,10 +343,21 @@ fn install_pkg(ctx: &Rc<Ctx>, pkg: &'static str) {
     ctx.log(&format!("Installiere {pkg} …"));
     let ctx2 = ctx.clone();
     ctx.run_streaming(
-        vec!["pkexec".into(), "pacman".into(), "-S".into(), "--needed".into(), "--noconfirm".into(), pkg.into()],
+        vec![
+            "pkexec".into(),
+            "pacman".into(),
+            "-S".into(),
+            "--needed".into(),
+            "--noconfirm".into(),
+            pkg.into(),
+        ],
         |ctx, line| ctx.log(line),
         move |_ctx, rc| {
-            let msg = if rc == 0 { format!("{pkg} installiert") } else { "Installation fehlgeschlagen".to_string() };
+            let msg = if rc == 0 {
+                format!("{pkg} installiert")
+            } else {
+                "Installation fehlgeschlagen".to_string()
+            };
             ctx2.toast(&msg);
             refresh_build_info(&ctx2);
         },
@@ -263,7 +369,11 @@ fn prepare(ctx: &Rc<Ctx>) -> Option<P::Paths> {
     let cfg = ctx.cfg.borrow().clone();
     let (errors, warnings) = C::validate(&cfg);
     if !errors.is_empty() {
-        let body = errors.iter().map(|e| format!("\u{2022} {e}")).collect::<Vec<_>>().join("\n");
+        let body = errors
+            .iter()
+            .map(|e| format!("\u{2022} {e}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         ctx.error("Bitte korrigieren", &body);
         return None;
     }
@@ -285,7 +395,8 @@ fn prepare(ctx: &Rc<Ctx>) -> Option<P::Paths> {
 /// the background, then call `then`.
 fn fetch_assets(ctx: &Rc<Ctx>, pth: P::Paths, then: impl Fn(&Rc<Ctx>) + 'static) {
     let cfg = ctx.cfg.borrow().clone();
-    let needs = (cfg.ai.ollama && !cfg.ai.models.is_empty()) || (cfg.containers.preload && !C::container_images(&cfg).is_empty());
+    let needs = (cfg.ai.ollama && !cfg.ai.models.is_empty())
+        || (cfg.containers.preload && !C::container_images(&cfg).is_empty());
     if !needs {
         then(ctx);
         return;
@@ -352,13 +463,19 @@ fn on_profile_only(ctx: &Rc<Ctx>) {
             status.set_label("Profil erzeugt");
         }
         ctx.toast("Profil erzeugt");
-        ctx.log(&format!("Zum manuellen Bauen: sudo bash {}", script.display()));
+        ctx.log(&format!(
+            "Zum manuellen Bauen: sudo bash {}",
+            script.display()
+        ));
     });
 }
 
 fn on_build(ctx: &Rc<Ctx>) {
     if !which("mkarchiso") {
-        ctx.error("archiso fehlt", "Bitte zuerst archiso installieren (Button oben).");
+        ctx.error(
+            "archiso fehlt",
+            "Bitte zuerst archiso installieren (Button oben).",
+        );
         return;
     }
     if let Some(view) = &ctx.shared.borrow().log_view {
@@ -371,7 +488,9 @@ fn on_build(ctx: &Rc<Ctx>) {
     if let Some(bar) = &ctx.shared.borrow().build_bar {
         bar.set_fraction(0.0);
     }
-    fetch_assets(ctx, pth, move |ctx| start_mkarchiso(ctx, &prepare_paths_for_start(ctx)));
+    fetch_assets(ctx, pth, move |ctx| {
+        start_mkarchiso(ctx, &prepare_paths_for_start(ctx))
+    });
 }
 
 /// `on_build` re-derives the project paths right before starting mkarchiso
@@ -393,7 +512,9 @@ fn start_mkarchiso(ctx: &Rc<Ctx>, pth: &P::Paths) {
     ctx.shared.borrow_mut().stage_frac = 0.0;
     ctx.shared.borrow_mut().build_out_dir = Some(pth.out.clone());
     let started: std::collections::HashSet<std::ffi::OsString> = if pth.out.is_dir() {
-        std::fs::read_dir(&pth.out).map(|it| it.flatten().map(|e| e.file_name()).collect()).unwrap_or_default()
+        std::fs::read_dir(&pth.out)
+            .map(|it| it.flatten().map(|e| e.file_name()).collect())
+            .unwrap_or_default()
     } else {
         Default::default()
     };
@@ -411,8 +532,12 @@ fn start_mkarchiso(ctx: &Rc<Ctx>, pth: &P::Paths) {
 
     let script = pth.script.clone();
     ctx.run_streaming(
-        vec!["pkexec".into(), "bash".into(), script.to_string_lossy().into_owned()],
-        |ctx, line| build_line(ctx, line),
+        vec![
+            "pkexec".into(),
+            "bash".into(),
+            script.to_string_lossy().into_owned(),
+        ],
+        build_line,
         move |ctx, rc| build_done(ctx, rc, &started),
     );
 }
@@ -443,7 +568,10 @@ fn build_line(ctx: &Rc<Ctx>, line: &str) {
             bar.set_fraction(frac);
         }
         if let Some(status) = &shared.build_status {
-            status.set_label(&format!("Installiere Pakete: {} ({}/{})", &m[3], &m[1], &m[2]));
+            status.set_label(&format!(
+                "Installiere Pakete: {} ({}/{})",
+                &m[3], &m[1], &m[2]
+            ));
         }
     } else if line.contains("downloading") && ctx.shared.borrow().stage_frac < 0.06 {
         if let Some(status) = &ctx.shared.borrow().build_status {
@@ -463,7 +591,8 @@ fn build_done(ctx: &Rc<Ctx>, rc: i32, started: &std::collections::HashSet<std::f
             .flatten()
             .map(|e| e.path())
             .filter(|p| {
-                p.extension().map(|e| e == "iso").unwrap_or(false) && !started.contains(p.file_name().unwrap())
+                p.extension().map(|e| e == "iso").unwrap_or(false)
+                    && !started.contains(p.file_name().unwrap())
             })
             .collect();
         isos.sort();
@@ -491,7 +620,10 @@ fn build_done(ctx: &Rc<Ctx>, rc: i32, started: &std::collections::HashSet<std::f
         if let Some(bar) = &ctx.shared.borrow().build_bar {
             bar.set_fraction(0.0);
         }
-        shared_status_label(ctx, &format!("Build fehlgeschlagen (Code {rc}) – siehe Protokoll"));
+        shared_status_label(
+            ctx,
+            &format!("Build fehlgeschlagen (Code {rc}) – siehe Protokoll"),
+        );
         ctx.error(
             "Build fehlgeschlagen",
             "Die Ursache steht im Protokoll. Häufig: unbekannter Paketname, nicht erreichbares Repository oder zu wenig Speicher.",
@@ -501,10 +633,15 @@ fn build_done(ctx: &Rc<Ctx>, rc: i32, started: &std::collections::HashSet<std::f
 
 fn show_result(ctx: &Rc<Ctx>, iso: &Path) {
     *ctx.last_iso.borrow_mut() = Some(iso.to_path_buf());
-    let size = std::fs::metadata(iso).map(|m| m.len() as f64 / 1024f64.powi(3)).unwrap_or(0.0);
+    let size = std::fs::metadata(iso)
+        .map(|m| m.len() as f64 / 1024f64.powi(3))
+        .unwrap_or(0.0);
     let shared = ctx.shared.borrow();
     if let Some(row) = &shared.iso_row {
-        row.set_subtitle(&glib::markup_escape_text(&format!("{}  ({size:.2} GB)", iso.display())));
+        row.set_subtitle(&glib::markup_escape_text(&format!(
+            "{}  ({size:.2} GB)",
+            iso.display()
+        )));
     }
     if let Some(btn) = &shared.qemu_btn {
         btn.set_visible(which("run_archiso") && which("qemu-system-x86_64"));
@@ -516,13 +653,21 @@ fn show_result(ctx: &Rc<Ctx>, iso: &Path) {
 
 fn on_cancel(ctx: &Rc<Ctx>) {
     ctx.log("Abbruch angefordert …");
-    let _ = std::process::Command::new("pkexec").args(["pkill", "-TERM", "-f", "mkarchiso"]).spawn();
+    let _ = std::process::Command::new("pkexec")
+        .args(["pkill", "-TERM", "-f", "mkarchiso"])
+        .spawn();
 }
 
 fn run_vm(ctx: &Rc<Ctx>) {
-    let Some(iso) = ctx.last_iso.borrow().clone() else { return };
+    let Some(iso) = ctx.last_iso.borrow().clone() else {
+        return;
+    };
     let uefi = Path::new("/usr/share/edk2/x64/OVMF_CODE.4m.fd").exists();
-    let mut cmd = vec!["run_archiso".to_string(), "-i".to_string(), iso.to_string_lossy().into_owned()];
+    let mut cmd = vec![
+        "run_archiso".to_string(),
+        "-i".to_string(),
+        iso.to_string_lossy().into_owned(),
+    ];
     if uefi {
         cmd.push("-u".to_string());
     }

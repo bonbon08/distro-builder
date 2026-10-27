@@ -27,9 +27,26 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     );
     ctx.shared.borrow_mut().ollama_row = Some(ollama_row);
 
-    let accels: Vec<(String, String)> = C::ollama_accel().into_iter().map(|(k, v)| (k.to_string(), v.label.to_string())).collect();
-    ctx.combo_row(&ai, "Beschleunigung", &accels, |cfg| cfg.ai.accel.clone(), |cfg, v| cfg.ai.accel = v, Some("CUDA/ROCm: mehrere GB groß"), false);
-    ctx.switch_row(&ai, "Im Netzwerk freigeben", Some("OLLAMA_HOST=0.0.0.0 – andere Geräte dürfen zugreifen"), |cfg| cfg.ai.expose, |cfg, v| cfg.ai.expose = v);
+    let accels: Vec<(String, String)> = C::ollama_accel()
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.label.to_string()))
+        .collect();
+    ctx.combo_row(
+        &ai,
+        "Beschleunigung",
+        &accels,
+        |cfg| cfg.ai.accel.clone(),
+        |cfg, v| cfg.ai.accel = v,
+        Some("CUDA/ROCm: mehrere GB groß"),
+        false,
+    );
+    ctx.switch_row(
+        &ai,
+        "Im Netzwerk freigeben",
+        Some("OLLAMA_HOST=0.0.0.0 – andere Geräte dürfen zugreifen"),
+        |cfg| cfg.ai.expose,
+        |cfg, v| cfg.ai.expose = v,
+    );
     ctx.switch_row(
         &ai,
         "KI-Entwicklungsumgebung",
@@ -44,10 +61,16 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
             "Größen sind ungefähre Downloadgrößen. Eigene Modelle: Name aus ollama.com/library oder hf.co/&lt;user&gt;/&lt;repo&gt;:&lt;quant&gt;.",
         )
         .build();
-    let size_btn = gtk::Button::builder().label("Größe prüfen").css_classes(["flat"]).build();
+    let size_btn = gtk::Button::builder()
+        .label("Größe prüfen")
+        .css_classes(["flat"])
+        .build();
     models_grp.set_header_suffix(Some(&size_btn));
     page.add(&models_grp);
-    let preset_names: std::collections::HashSet<String> = C::model_presets().iter().map(|m| m.name.to_string()).collect();
+    let preset_names: std::collections::HashSet<String> = C::model_presets()
+        .iter()
+        .map(|m| m.name.to_string())
+        .collect();
     for preset in C::model_presets() {
         let active = ctx.cfg.borrow().ai.models.iter().any(|m| m == preset.name);
         let row = adw::SwitchRow::builder()
@@ -60,10 +83,15 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         row.connect_active_notify(move |r| toggle_model(&ctx2, &name, r.is_active()));
         models_grp.add(&row);
     }
-    let custom_models_grp = adw::PreferencesGroup::builder().title("Eigene Modelle").build();
+    let custom_models_grp = adw::PreferencesGroup::builder()
+        .title("Eigene Modelle")
+        .build();
     page.add(&custom_models_grp);
     ctx.shared.borrow_mut().custom_models_grp = Some(custom_models_grp.clone());
-    let add_model = adw::EntryRow::builder().title("Modell hinzufügen (z. B. qwen2.5-coder:7b)").show_apply_button(true).build();
+    let add_model = adw::EntryRow::builder()
+        .title("Modell hinzufügen (z. B. qwen2.5-coder:7b)")
+        .show_apply_button(true)
+        .build();
     {
         let ctx2 = ctx.clone();
         let preset_names2 = preset_names.clone();
@@ -83,7 +111,10 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     }
     custom_models_grp.add(&add_model);
     refresh_custom_models(ctx, &preset_names);
-    let model_total = adw::ActionRow::builder().title("Modelle gesamt").css_classes(["property"]).build();
+    let model_total = adw::ActionRow::builder()
+        .title("Modelle gesamt")
+        .css_classes(["property"])
+        .build();
     custom_models_grp.add(&model_total);
     ctx.shared.borrow_mut().model_total = Some(model_total);
     update_model_total(ctx, None);
@@ -101,8 +132,19 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         )
         .build();
     page.add(&ct);
-    let engines: Vec<(String, String)> = C::container_engines().into_iter().map(|(k, v)| (k.to_string(), v.label.to_string())).collect();
-    ctx.combo_row(&ct, "Container-Engine", &engines, |cfg| cfg.containers.engine.clone(), |cfg, v| cfg.containers.engine = v, None, false);
+    let engines: Vec<(String, String)> = C::container_engines()
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.label.to_string()))
+        .collect();
+    ctx.combo_row(
+        &ct,
+        "Container-Engine",
+        &engines,
+        |cfg| cfg.containers.engine.clone(),
+        |cfg, v| cfg.containers.engine = v,
+        None,
+        false,
+    );
     ctx.switch_row(
         &ct,
         "Images beim Bauen in die ISO packen",
@@ -115,7 +157,13 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .description("Ein Image pro Zeile, z. B. nginx:alpine, postgres:17, ghcr.io/…")
         .build();
     page.add(&imgs);
-    ctx.textview_row(&imgs, |cfg| cfg.containers.images.clone(), |cfg, v| cfg.containers.images = v, 70, true);
+    ctx.textview_row(
+        &imgs,
+        |cfg| cfg.containers.images.clone(),
+        |cfg, v| cfg.containers.images = v,
+        70,
+        true,
+    );
 
     let stacks_grp = adw::PreferencesGroup::builder()
         .title("Container-Apps (Compose-Stacks)")
@@ -123,10 +171,18 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .build();
     let menu = gio::Menu::new();
     for (key, preset) in C::stack_presets() {
-        menu.append(Some(preset.title), Some(&format!("win.stack-preset::{key}")));
+        menu.append(
+            Some(preset.title),
+            Some(&format!("win.stack-preset::{key}")),
+        );
     }
     menu.append(Some("Eigener Stack …"), Some("win.stack-preset::custom"));
-    let menu_btn = gtk::MenuButton::builder().icon_name("list-add-symbolic").menu_model(&menu).css_classes(["flat"]).tooltip_text("Stack hinzufügen").build();
+    let menu_btn = gtk::MenuButton::builder()
+        .icon_name("list-add-symbolic")
+        .menu_model(&menu)
+        .css_classes(["flat"])
+        .tooltip_text("Stack hinzufügen")
+        .build();
     stacks_grp.set_header_suffix(Some(&menu_btn));
     page.add(&stacks_grp);
     ctx.shared.borrow_mut().stacks_grp = Some(stacks_grp.clone());
@@ -163,7 +219,10 @@ fn toggle_model(ctx: &Rc<Ctx>, name: &str, active: bool) {
         }
         ctx.toast("Ollama wurde aktiviert");
     }
-    let preset_names: std::collections::HashSet<String> = C::model_presets().iter().map(|m| m.name.to_string()).collect();
+    let preset_names: std::collections::HashSet<String> = C::model_presets()
+        .iter()
+        .map(|m| m.name.to_string())
+        .collect();
     update_model_total(ctx, None);
     refresh_custom_models(ctx, &preset_names);
     ctx.changed();
@@ -176,11 +235,25 @@ fn refresh_custom_models(ctx: &Rc<Ctx>, preset_names: &std::collections::HashSet
     for row in &old_rows {
         grp.remove(row);
     }
-    let custom_names: Vec<String> = ctx.cfg.borrow().ai.models.iter().filter(|m| !preset_names.contains(*m)).cloned().collect();
+    let custom_names: Vec<String> = ctx
+        .cfg
+        .borrow()
+        .ai
+        .models
+        .iter()
+        .filter(|m| !preset_names.contains(*m))
+        .cloned()
+        .collect();
     let mut rows = Vec::new();
     for name in custom_names {
-        let row = adw::ActionRow::builder().title(glib::markup_escape_text(&name)).build();
-        let rm = gtk::Button::builder().icon_name("user-trash-symbolic").css_classes(["flat"]).valign(gtk::Align::Center).build();
+        let row = adw::ActionRow::builder()
+            .title(glib::markup_escape_text(&name))
+            .build();
+        let rm = gtk::Button::builder()
+            .icon_name("user-trash-symbolic")
+            .css_classes(["flat"])
+            .valign(gtk::Align::Center)
+            .build();
         let ctx2 = ctx.clone();
         let name2 = name.clone();
         let preset_names2 = preset_names.clone();
@@ -201,18 +274,45 @@ fn refresh_custom_models(ctx: &Rc<Ctx>, preset_names: &std::collections::HashSet
 
 fn update_model_total(ctx: &Rc<Ctx>, exact: Option<u64>) {
     let shared = ctx.shared.borrow();
-    let Some(row) = &shared.model_total else { return };
+    let Some(row) = &shared.model_total else {
+        return;
+    };
     let models = ctx.cfg.borrow().ai.models.clone();
     if let Some(exact) = exact {
-        row.set_subtitle(&format!("{} Modell(e), {:.2} GB (geprüft)", models.len(), exact as f64 / 1024f64.powi(3)));
+        row.set_subtitle(&format!(
+            "{} Modell(e), {:.2} GB (geprüft)",
+            models.len(),
+            exact as f64 / 1024f64.powi(3)
+        ));
         return;
     }
-    let known: std::collections::HashMap<&str, f64> = C::model_presets().into_iter().map(|m| (m.name, m.size_gb)).collect::<Vec<_>>().into_iter().collect();
-    let est: f64 = models.iter().map(|m| known.get(m.as_str()).copied().unwrap_or(0.0)).sum();
-    let unknown = models.iter().filter(|m| !known.contains_key(m.as_str())).count();
-    let extra = if unknown > 0 { format!(" + {unknown} unbekannte") } else { String::new() };
-    let warn = if est > 8.0 { "  \u{26a0} ISO wird groß" } else { "" };
-    row.set_subtitle(&format!("{} Modell(e), ca. {:.1} GB{extra}{warn}", models.len(), est));
+    let known: std::collections::HashMap<&str, f64> = C::model_presets()
+        .into_iter()
+        .map(|m| (m.name, m.size_gb))
+        .collect();
+    let est: f64 = models
+        .iter()
+        .map(|m| known.get(m.as_str()).copied().unwrap_or(0.0))
+        .sum();
+    let unknown = models
+        .iter()
+        .filter(|m| !known.contains_key(m.as_str()))
+        .count();
+    let extra = if unknown > 0 {
+        format!(" + {unknown} unbekannte")
+    } else {
+        String::new()
+    };
+    let warn = if est > 8.0 {
+        "  \u{26a0} ISO wird groß"
+    } else {
+        ""
+    };
+    row.set_subtitle(&format!(
+        "{} Modell(e), ca. {:.1} GB{extra}{warn}",
+        models.len(),
+        est
+    ));
 }
 
 fn on_model_sizes(ctx: &Rc<Ctx>) {
@@ -252,20 +352,37 @@ fn refresh_stacks(ctx: &Rc<Ctx>) {
     if stacks.is_empty() {
         let row = adw::ActionRow::builder()
             .title("Keine Container-Apps")
-            .subtitle("Mit + eine Vorlage (Open WebUI, Portainer …) oder einen eigenen Stack hinzufügen")
+            .subtitle(
+                "Mit + eine Vorlage (Open WebUI, Portainer …) oder einen eigenen Stack hinzufügen",
+            )
             .build();
         grp.add(&row);
         rows.push(row);
     }
     let image_re = regex::Regex::new(r#"(?m)^\s*image:\s*["']?([^\s"']+)"#).unwrap();
     for (i, st) in stacks.iter().enumerate() {
-        let images: Vec<&str> = image_re.captures_iter(&st.compose).map(|c| c.get(1).unwrap().as_str()).collect();
-        let title = if st.title.is_empty() { &st.name } else { &st.title };
+        let images: Vec<&str> = image_re
+            .captures_iter(&st.compose)
+            .map(|c| c.get(1).unwrap().as_str())
+            .collect();
+        let title = if st.title.is_empty() {
+            &st.name
+        } else {
+            &st.title
+        };
         let row = adw::ActionRow::builder()
             .title(glib::markup_escape_text(title))
-            .subtitle(glib::markup_escape_text(&if images.is_empty() { "kein Image".to_string() } else { images.join(", ") }))
+            .subtitle(glib::markup_escape_text(&if images.is_empty() {
+                "kein Image".to_string()
+            } else {
+                images.join(", ")
+            }))
             .build();
-        let auto = gtk::Switch::builder().active(st.autostart).valign(gtk::Align::Center).tooltip_text("Beim Systemstart starten").build();
+        let auto = gtk::Switch::builder()
+            .active(st.autostart)
+            .valign(gtk::Align::Center)
+            .tooltip_text("Beim Systemstart starten")
+            .build();
         {
             let ctx2 = ctx.clone();
             auto.connect_active_notify(move |w| {
@@ -274,12 +391,20 @@ fn refresh_stacks(ctx: &Rc<Ctx>) {
                 }
             });
         }
-        let edit = gtk::Button::builder().icon_name("document-edit-symbolic").css_classes(["flat"]).valign(gtk::Align::Center).build();
+        let edit = gtk::Button::builder()
+            .icon_name("document-edit-symbolic")
+            .css_classes(["flat"])
+            .valign(gtk::Align::Center)
+            .build();
         {
             let ctx2 = ctx.clone();
             edit.connect_clicked(move |_| stack_dialog(&ctx2, Some(i)));
         }
-        let rm = gtk::Button::builder().icon_name("user-trash-symbolic").css_classes(["flat"]).valign(gtk::Align::Center).build();
+        let rm = gtk::Button::builder()
+            .icon_name("user-trash-symbolic")
+            .css_classes(["flat"])
+            .valign(gtk::Align::Center)
+            .build();
         {
             let ctx2 = ctx.clone();
             rm.connect_clicked(move |_| {
@@ -307,13 +432,25 @@ fn add_stack_preset(ctx: &Rc<Ctx>, key: &str) {
         stack_dialog(ctx, None);
         return;
     }
-    let Some((_, preset)) = C::stack_presets().into_iter().find(|(k, _)| *k == key) else { return };
-    if ctx.cfg.borrow().containers.stacks.iter().any(|s| s.name == key) {
+    let Some((_, preset)) = C::stack_presets().into_iter().find(|(k, _)| *k == key) else {
+        return;
+    };
+    if ctx
+        .cfg
+        .borrow()
+        .containers
+        .stacks
+        .iter()
+        .any(|s| s.name == key)
+    {
         ctx.toast(&format!("{} ist bereits vorhanden", preset.title));
         return;
     }
     let url_re = regex::Regex::new(r"https?://\S+").unwrap();
-    let url = url_re.find(preset.desc).map(|m| m.as_str().to_string()).unwrap_or_default();
+    let url = url_re
+        .find(preset.desc)
+        .map(|m| m.as_str().to_string())
+        .unwrap_or_default();
     ctx.cfg.borrow_mut().containers.stacks.push(Stack {
         name: key.to_string(),
         title: preset.title.to_string(),
@@ -337,21 +474,47 @@ fn stack_dialog(ctx: &Rc<Ctx>, idx: Option<usize>) {
         autostart: true,
         url: String::new(),
     });
-    let heading = if idx.is_some() { "Container-App bearbeiten" } else { "Eigene Container-App" };
+    let heading = if idx.is_some() {
+        "Container-App bearbeiten"
+    } else {
+        "Eigene Container-App"
+    };
     let dlg = adw::AlertDialog::builder().heading(heading).build();
     let box_ = gtk::Box::new(gtk::Orientation::Vertical, 12);
     box_.set_width_request(560);
-    let lst = gtk::ListBox::builder().css_classes(["boxed-list"]).selection_mode(gtk::SelectionMode::None).build();
-    let name = adw::EntryRow::builder().title("Name (a-z, 0-9, -)").text(st.name.clone()).build();
-    let url = adw::EntryRow::builder().title("Web-Adresse für Menüeintrag (optional)").text(st.url.clone()).build();
+    let lst = gtk::ListBox::builder()
+        .css_classes(["boxed-list"])
+        .selection_mode(gtk::SelectionMode::None)
+        .build();
+    let name = adw::EntryRow::builder()
+        .title("Name (a-z, 0-9, -)")
+        .text(st.name.clone())
+        .build();
+    let url = adw::EntryRow::builder()
+        .title("Web-Adresse für Menüeintrag (optional)")
+        .text(st.url.clone())
+        .build();
     lst.append(&name);
     lst.append(&url);
     box_.append(&lst);
-    let view = gtk::TextView::builder().monospace(true).top_margin(8).bottom_margin(8).left_margin(10).right_margin(10).build();
+    let view = gtk::TextView::builder()
+        .monospace(true)
+        .top_margin(8)
+        .bottom_margin(8)
+        .left_margin(10)
+        .right_margin(10)
+        .build();
     view.buffer().set_text(&st.compose);
-    let heading_lbl = gtk::Label::builder().label("compose.yaml").xalign(0.0).css_classes(["heading"]).build();
+    let heading_lbl = gtk::Label::builder()
+        .label("compose.yaml")
+        .xalign(0.0)
+        .css_classes(["heading"])
+        .build();
     box_.append(&heading_lbl);
-    let scroller = gtk::ScrolledWindow::builder().child(&view).min_content_height(260).build();
+    let scroller = gtk::ScrolledWindow::builder()
+        .child(&view)
+        .min_content_height(260)
+        .build();
     box_.append(&gtk::Frame::builder().child(&scroller).build());
     dlg.set_extra_child(Some(&box_));
     dlg.add_response("cancel", "Abbrechen");
@@ -365,11 +528,17 @@ fn stack_dialog(ctx: &Rc<Ctx>, idx: Option<usize>) {
             return;
         }
         let buf = view.buffer();
-        let compose = buf.text(&buf.start_iter(), &buf.end_iter(), false).to_string();
+        let compose = buf
+            .text(&buf.start_iter(), &buf.end_iter(), false)
+            .to_string();
         let new_name = name.text().trim().to_string();
         let new = Stack {
             name: new_name.clone(),
-            title: if title_fallback.is_empty() { new_name.clone() } else { title_fallback.clone() },
+            title: if title_fallback.is_empty() {
+                new_name.clone()
+            } else {
+                title_fallback.clone()
+            },
             compose,
             autostart: st.autostart,
             url: url.text().trim().to_string(),
@@ -378,7 +547,10 @@ fn stack_dialog(ctx: &Rc<Ctx>, idx: Option<usize>) {
             ctx2.toast("Ungültiger Name (a-z, 0-9, -)");
             return;
         }
-        if !regex::Regex::new(r"(?m)^services:").unwrap().is_match(&new.compose) {
+        if !regex::Regex::new(r"(?m)^services:")
+            .unwrap()
+            .is_match(&new.compose)
+        {
             ctx2.toast("Die Compose-Datei braucht einen 'services:'-Abschnitt");
             return;
         }

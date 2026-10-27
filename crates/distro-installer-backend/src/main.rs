@@ -37,10 +37,15 @@ fn geteuid() -> u32 {
 }
 
 fn load_inputs() -> Result<(InstallerConf, Selection)> {
-    let conf_text = std::fs::read_to_string(CONF_PATH).with_context(|| format!("Konfiguration {CONF_PATH} nicht lesbar"))?;
-    let conf: InstallerConf = serde_json::from_str(&conf_text).context("Ungültige Konfiguration")?;
-    let sel_path = std::env::args().nth(1).ok_or_else(|| anyhow!("Kein Auswahl-Pfad übergeben"))?;
-    let sel_text = std::fs::read_to_string(&sel_path).with_context(|| format!("Auswahl-Datei {sel_path} nicht lesbar"))?;
+    let conf_text = std::fs::read_to_string(CONF_PATH)
+        .with_context(|| format!("Konfiguration {CONF_PATH} nicht lesbar"))?;
+    let conf: InstallerConf =
+        serde_json::from_str(&conf_text).context("Ungültige Konfiguration")?;
+    let sel_path = std::env::args()
+        .nth(1)
+        .ok_or_else(|| anyhow!("Kein Auswahl-Pfad übergeben"))?;
+    let sel_text = std::fs::read_to_string(&sel_path)
+        .with_context(|| format!("Auswahl-Datei {sel_path} nicht lesbar"))?;
     let sel: Selection = serde_json::from_str(&sel_text).context("Ungültige Auswahl")?;
     Ok((conf, sel))
 }
@@ -55,14 +60,22 @@ fn real_main(rt: &mut Runner) -> Result<()> {
         sel.source = "offline".to_string();
     }
 
-    let mode = if sel.source == "offline" { "von der ISO (offline)" } else { "aus dem Internet" };
+    let mode = if sel.source == "offline" {
+        "von der ISO (offline)"
+    } else {
+        "aus dem Internet"
+    };
     out(&format!(
         "Installiere {} {mode} auf {} ({}, {}, {})",
         conf.name,
         sel.disk,
         sel.filesystem,
         if uefi { "UEFI" } else { "BIOS" },
-        if sel.encrypt { "verschlüsselt" } else { "unverschlüsselt" }
+        if sel.encrypt {
+            "verschlüsselt"
+        } else {
+            "unverschlüsselt"
+        }
     ));
     for ex in &sel.extra_disks {
         out(&format!("  zusätzlich: {} als {}", ex.path, ex.role));

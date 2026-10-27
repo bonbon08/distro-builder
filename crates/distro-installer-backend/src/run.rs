@@ -19,11 +19,16 @@ pub struct Runner {
 
 impl Runner {
     pub fn new(target: PathBuf) -> Self {
-        Self { target, opened_luks: Vec::new() }
+        Self {
+            target,
+            opened_luks: Vec::new(),
+        }
     }
 
     fn target_str(&self) -> &str {
-        self.target.to_str().expect("target path must be valid UTF-8")
+        self.target
+            .to_str()
+            .expect("target path must be valid UTF-8")
     }
 
     pub fn run(&self, cmd: &[&str], check: bool, stdin: Option<&[u8]>, quiet: bool) -> Result<i32> {
@@ -88,7 +93,10 @@ impl Runner {
         if let Some(parent) = full.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&full)?;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&full)?;
         f.write_all(content.as_bytes())?;
         Ok(())
     }
@@ -115,8 +123,14 @@ pub fn spawn_merged(cmd: &[&str], stdin: Option<&[u8]>) -> Result<(Child, os_pip
     c.args(&cmd[1..]);
     c.stdout(Stdio::from(writer));
     c.stderr(Stdio::from(writer2));
-    c.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() });
-    let mut child = c.spawn().with_context(|| format!("Konnte {} nicht starten", cmd[0]))?;
+    c.stdin(if stdin.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    });
+    let mut child = c
+        .spawn()
+        .with_context(|| format!("Konnte {} nicht starten", cmd[0]))?;
     if let Some(data) = stdin {
         if let Some(mut si) = child.stdin.take() {
             si.write_all(data)?;

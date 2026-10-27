@@ -1,9 +1,0 @@
-#!/bin/sh
-# Startet den Distro Builder – aus dem Quellordner oder aus der Installation.
-HERE="$(dirname "$(readlink -f "$0")")"
-if [ -d "$HERE/distrobuilder" ]; then
-  LIB="$HERE"
-else
-  LIB="${DISTRO_BUILDER_LIB:-/usr/share/distro-builder}"
-fi
-PYTHONPATH="$LIB${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m distrobuilder "$@"

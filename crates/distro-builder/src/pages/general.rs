@@ -57,15 +57,54 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     grp.remove(&id_row);
     grp.add(&id_row);
 
-    ctx.entry_row(&grp, "Version", |cfg| cfg.general.version.clone(), |cfg, v| cfg.general.version = v, None);
-    ctx.entry_row(&grp, "Standard-Hostname", |cfg| cfg.general.hostname.clone(), |cfg, v| cfg.general.hostname = v, None);
+    ctx.entry_row(
+        &grp,
+        "Version",
+        |cfg| cfg.general.version.clone(),
+        |cfg, v| cfg.general.version = v,
+        None,
+    );
+    ctx.entry_row(
+        &grp,
+        "Standard-Hostname",
+        |cfg| cfg.general.hostname.clone(),
+        |cfg, v| cfg.general.hostname = v,
+        None,
+    );
 
-    let grp2 = adw::PreferencesGroup::builder().title("Herausgeber &amp; Links").description("Optional").build();
+    let grp2 = adw::PreferencesGroup::builder()
+        .title("Herausgeber &amp; Links")
+        .description("Optional")
+        .build();
     page.add(&grp2);
-    ctx.entry_row(&grp2, "Herausgeber", |cfg| cfg.general.publisher.clone(), |cfg, v| cfg.general.publisher = v, None);
-    ctx.entry_row(&grp2, "Webseite (HOME_URL)", |cfg| cfg.general.homepage.clone(), |cfg, v| cfg.general.homepage = v, None);
-    ctx.entry_row(&grp2, "Support-URL", |cfg| cfg.general.support_url.clone(), |cfg, v| cfg.general.support_url = v, None);
-    ctx.entry_row(&grp2, "Fehlerberichte-URL", |cfg| cfg.general.bug_url.clone(), |cfg, v| cfg.general.bug_url = v, None);
+    ctx.entry_row(
+        &grp2,
+        "Herausgeber",
+        |cfg| cfg.general.publisher.clone(),
+        |cfg, v| cfg.general.publisher = v,
+        None,
+    );
+    ctx.entry_row(
+        &grp2,
+        "Webseite (HOME_URL)",
+        |cfg| cfg.general.homepage.clone(),
+        |cfg, v| cfg.general.homepage = v,
+        None,
+    );
+    ctx.entry_row(
+        &grp2,
+        "Support-URL",
+        |cfg| cfg.general.support_url.clone(),
+        |cfg, v| cfg.general.support_url = v,
+        None,
+    );
+    ctx.entry_row(
+        &grp2,
+        "Fehlerberichte-URL",
+        |cfg| cfg.general.bug_url.clone(),
+        |cfg, v| cfg.general.bug_url = v,
+        None,
+    );
 
     page
 }
