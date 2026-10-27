@@ -18,5 +18,11 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked
       - name: Tests
         run: cargo test --workspace --locked
+      - name: Alle Binärdateien bauen
+        # distro-builder-core's archiso-profile test below needs the compiled
+        # distro-installer/distro-installer-backend binaries to embed into the
+        # profile; `cargo test -p distro-builder-core` alone wouldn't build
+        # those sibling-crate binaries.
+        run: cargo build --workspace --locked
       - name: Profil-Erzeugung gegen echtes archiso-releng
         run: cargo test -p distro-builder-core --locked -- --include-ignored
