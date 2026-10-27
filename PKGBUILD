@@ -14,7 +14,7 @@ optdepends=('skopeo: Container-Images in die ISO packen'
             'xdg-utils: Ausgabeordner öffnen')
 checkdepends=('python')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('afef027b6c27020ae4756da870e4e13c20c465032773fd1c21fd2f339b0a3af1')
 
 check() {
   cd "$pkgname-$pkgver"
