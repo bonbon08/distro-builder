@@ -1,0 +1,18 @@
+name: Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Abhängigkeiten installieren
+        run: pacman -Syu --noconfirm --needed archiso python python-gobject gdk-pixbuf2 ruff git
+      - uses: actions/checkout@v4
+      - name: Lint
+        run: ruff check --select E,F,W,B --ignore E741,E501 .
+      - name: Tests
+        run: python -m unittest discover -s tests -v

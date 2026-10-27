@@ -1,0 +1,9 @@
+# makepkg
+/pkg/
+/src/
+*.pkg.tar.*
+*.tar.gz
+__pycache__/
+*.pyc
+# Testläufe
+/build-test/

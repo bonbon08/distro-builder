@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Distro Builder
+GenericName=Linux-Distributions-Baukasten
+Comment=Eigene Arch-basierte Linux-Distribution als bootfähige ISO bauen
+Exec=distro-builder
+Icon=media-optical
+Terminal=false
+Categories=System;GTK;
+Keywords=arch;archiso;iso;distro;linux;installer;ollama;docker;
+StartupNotify=true
