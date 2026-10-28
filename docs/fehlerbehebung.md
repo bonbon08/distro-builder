@@ -3,7 +3,7 @@
 ## Beim Bauen
 
 **„archiso-Vorlage nicht gefunden“ / „mkarchiso nicht gefunden“**
-`archiso` installieren, entweder über den Button auf der Seite „ISO bauen“ oder mit `sudo pacman -S archiso`.
+`archiso` installieren, entweder über den Button auf der Seite „Bauen“ oder mit `sudo pacman -S archiso`.
 
 **Nach dem Passwort passiert nichts / „Abgebrochen (keine Berechtigung)“**
 `pkexec` braucht einen laufenden Polkit-Agenten, den jeder gängige Desktop mitbringt. Alternativ
@@ -27,24 +27,62 @@ Projektordner kannst du auf eine andere Platte legen. Abgebrochene Builds hinter
 der nächste Build räumt das auf, oder du löschst es selbst (`sudo rm -rf …/work`).
 
 **Container-Images lassen sich nicht laden**
-`skopeo` installieren (Button auf der Seite „ISO bauen“). Bei Docker als Fallback muss dein
+`skopeo` installieren (Button auf der Seite „Bauen“). Bei Docker als Fallback muss dein
 Benutzer Docker verwenden dürfen. Private Registries: vorher `skopeo login` bzw. `docker login`.
 
 **Modell nicht gefunden (404)**
 Den genauen Namen auf ollama.com nachsehen, zum Beispiel `qwen3:8b` statt `qwen3-8b`. „Größe prüfen“ zeigt Fehler sofort an.
 
+**„ARM-Emulation fehlt“ beim ARM- oder Raspberry-Pi-Image**
+`sudo pacman -S qemu-user-static qemu-user-static-binfmt` und danach
+`sudo systemctl restart systemd-binfmt`. Prüfen: `ls /proc/sys/fs/binfmt_misc/qemu-aarch64`.
+
+**`target not found` nur beim ARM-Image**
+Das Paket gibt es bei Arch Linux ARM nicht (z. B. viele proprietäre Programme). Nachsehen unter
+[archlinuxarm.org/packages](https://archlinuxarm.org/packages) – oder die App als Flatpak einbinden.
+
+**Flatpak-Apps fehlen nach der Installation**
+Ohne `flatpak` auf dem Build-Rechner oder ohne Netz beim Bauen werden sie erst beim ersten Start
+geladen. Stand: `systemctl status <id>-flatpak-setup`. Der Dienst wiederholt es bei jedem Start,
+bis alle Apps da sind.
+
+**Distrobox-Container wurden nicht angelegt**
+Sie entstehen beim ersten Anmelden und brauchen Internet: `systemctl --user status <id>-distrobox`.
+Erneut anstoßen: `rm ~/.local/state/<id>/distrobox.done` und neu anmelden – oder direkt
+`distrobox assemble create --file /etc/<id>/distrobox.ini`.
+
 **Build dauert sehr lange**
 xz-Kompression, NVIDIA-DKMS, CUDA/ROCm und große Modelle verlängern den Build deutlich. Für
 Testbuilds zstd verwenden und die Arch-Rettungswerkzeuge abschalten.
 
+## Spiegelserver
+
+**„Spiegelserver konnte nicht starten“**: Der Port ist belegt. Unter „Repositories → Eigener
+Spiegelserver“ einen anderen Port wählen und die Adresse anpassen („Dieser Rechner“).
+
+**Andere Rechner erreichen den Spiegel nicht**: Port in der Firewall freigeben
+(`sudo ufw allow 8080/tcp`) und als Adresse die LAN-IP statt `localhost` eintragen.
+
+**Build bricht mit `failed to retrieve some files` beim eigenen Repo ab**: Der Spiegel lief
+während des Builds nicht. Vor dem Bauen auf „Starten“ klicken; die Seite „Bauen“ fragt danach auch
+selbst nach.
+
+**`repo-add` nicht gefunden**: Ist Teil von `pacman`, steht also nur auf Arch-basierten
+Systemen zur Verfügung.
+
 ## Im Live-System
 
 **Kein grafischer Desktop**: Wurde unter „Pakete“ ein Desktop gewählt? Ohne Desktop startet das
-System in die Konsole (root-Autologin wie beim Arch-ISO).
+System in die Konsole und meldet sich als Live-Benutzer an (root über `sudo -i`).
 
 **Installer startet nicht**
 Im Terminal `distro-installer` ausführen, dann siehst du die Fehlermeldung. Das Backend läuft per
-`sudo -n`; der Benutzer `live` darf das ohne Passwort.
+`sudo -n`; der Live-Benutzer darf das ohne Passwort. Deshalb ist mit Installer immer
+„sudo ohne Passwort“ eingestellt.
+
+**Live-System fragt nach einem Passwort**
+Unter „Live & Installer“ ist ein Live-Passwort gesetzt oder die automatische Anmeldung aus. Das
+Passwort lässt sich dort neu setzen oder entfernen; danach die ISO neu bauen.
 
 **NVIDIA: schwarzer Bildschirm**
 Im Bootmenü mit `e` (systemd-boot) bzw. `Tab` (syslinux) den Parameter `nomodeset` anhängen.
@@ -83,7 +121,11 @@ journalctl -u <id>-compose@<name>
 
 ## AUR-Pakete
 
-AUR-Pakete lassen sich nicht direkt eintragen. So geht es über ein eigenes Repository:
+AUR-Pakete lassen sich nicht direkt eintragen. Am einfachsten: Paket mit `makepkg` bauen und unter
+„Repositories → Eigenes Paket-Repository“ mit **+** hinzufügen. Der eigene Spiegelserver liefert es
+dann an ISO-Build und installierte Systeme aus (siehe [Spiegelserver](spiegelserver.md#eigenes-paket-repository)).
+
+Ohne Spiegelserver geht es auch von Hand:
 
 ```bash
 mkdir -p ~/myrepo && cd ~/aur-paket && makepkg -s

@@ -51,7 +51,7 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     );
 
     let mir = adw::PreferencesGroup::builder()
-        .title("Spiegelserver")
+        .title("Paketquelle")
         .description(
             "Leer lassen, um /etc/pacman.d/mirrorlist zu nutzen. Sonst z. B. https://mirror.example.org/archlinux/$repo/os/$arch",
         )
@@ -84,6 +84,8 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     page.add(&custom_grp);
     ctx.shared.borrow_mut().custom_repo_grp = Some(custom_grp.clone());
     refresh_custom_repos(ctx);
+
+    crate::pages::mirror::add_groups(ctx, &page);
 
     let prev = adw::PreferencesGroup::builder()
         .title("Erzeugte pacman.conf")

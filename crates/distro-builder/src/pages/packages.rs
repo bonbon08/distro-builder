@@ -13,7 +13,8 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .build();
     page.add(&base);
 
-    let kernels: Vec<(String, String)> = C::kernels()
+    let is_image = C::is_image(&ctx.cfg.borrow());
+    let kernels: Vec<(String, String)> = C::kernels_for(&ctx.cfg.borrow())
         .into_iter()
         .map(|(k, l)| (k.to_string(), l.to_string()))
         .collect();
@@ -40,7 +41,7 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         Some("Inklusive Display-Manager und automatischer Anmeldung im Live-System"),
         false,
     );
-    let gpus: Vec<(String, String)> = C::gpus()
+    let gpus: Vec<(String, String)> = C::gpus_for(&ctx.cfg.borrow())
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.label.to_string()))
         .collect();
@@ -53,13 +54,15 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         Some("NVIDIA nutzt DKMS – der Build dauert dadurch etwas länger"),
         false,
     );
-    ctx.switch_row(
-        &base,
-        "Arch-Rettungswerkzeuge im Live-System",
-        Some("Alle Tools des offiziellen Arch-ISOs (größer). Aus = schlankes Live-System"),
-        |cfg| cfg.packages.rescue_tools,
-        |cfg, v| cfg.packages.rescue_tools = v,
-    );
+    if !is_image {
+        ctx.switch_row(
+            &base,
+            "Arch-Rettungswerkzeuge im Live-System",
+            Some("Alle Tools des offiziellen Arch-ISOs (größer). Aus = schlankes Live-System"),
+            |cfg| cfg.packages.rescue_tools,
+            |cfg, v| cfg.packages.rescue_tools = v,
+        );
+    }
     let pkg_count = adw::ActionRow::builder()
         .title("Paketanzahl")
         .css_classes(["property"])
@@ -117,6 +120,11 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         let ctx2 = ctx.clone();
         check_btn.connect_clicked(move |_| {
             let names = C::custom_packages(&ctx2.cfg.borrow());
+            let note = if C::is_image(&ctx2.cfg.borrow()) {
+                "\n\nHinweis: Geprüft wird gegen die x86_64-Repos dieses Rechners. Für ARM können Pakete fehlen oder anders heißen."
+            } else {
+                ""
+            };
             if names.is_empty() {
                 ctx2.toast("Keine eigenen Pakete eingetragen");
                 return;
@@ -135,7 +143,7 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
                         ctx3.error(
                             "Unbekannte Pakete",
                             &format!(
-                                "Folgende Pakete wurden in den lokal bekannten Repos nicht gefunden (bei eigenen Repos ist das normal):\n\n{}",
+                                "Folgende Pakete wurden in den lokal bekannten Repos nicht gefunden (bei eigenen Repos ist das normal):\n\n{}{note}",
                                 missing.join(", ")
                             ),
                         );

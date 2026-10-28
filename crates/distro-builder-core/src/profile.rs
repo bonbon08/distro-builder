@@ -357,6 +357,7 @@ fn build_overlay(cfg: &Config, root: &Path) -> std::io::Result<Vec<String>> {
         )?;
     }
     execs.extend(build_ai_containers(cfg, root)?);
+    execs.extend(build_apps(cfg, root)?);
     Ok(execs)
 }
 
@@ -474,6 +475,206 @@ fn build_ai_containers(cfg: &Config, root: &Path) -> std::io::Result<Vec<String>
         }
     }
     Ok(execs)
+}
+
+fn flatpak_setup_script(cfg: &Config) -> String {
+    let gid = &cfg.general.id;
+    let mut lines = vec![
+        "#!/bin/sh".to_string(),
+        "# Richtet Flatpak-Quellen ein und installiert die vorgesehenen Apps (einmalig, braucht Internet,".to_string(),
+        "# wenn die Apps nicht schon beim Bauen mitgeliefert wurden)".to_string(),
+        format!("TAR=/var/lib/{gid}/flatpak.tar"),
+        "if [ -f \"$TAR\" ]; then".to_string(),
+        "  mkdir -p /var/lib/flatpak && tar -xpf \"$TAR\" -C /var/lib/flatpak && rm -f \"$TAR\"".to_string(),
+        "fi".to_string(),
+        "ok=1".to_string(),
+    ];
+    for (name, url) in C::flatpak_remotes(cfg) {
+        lines.push(format!(
+            "flatpak remote-add --system --if-not-exists {} {} || ok=0",
+            quote_str(&name),
+            quote_str(&url)
+        ));
+    }
+    for (remote, app) in C::flatpak_apps(cfg) {
+        lines.push(format!(
+            "flatpak info --system {app_q} >/dev/null 2>&1 || flatpak install --system --noninteractive {} {app_q} || ok=0",
+            quote_str(&remote),
+            app_q = quote_str(&app)
+        ));
+    }
+    lines.push(format!(
+        "[ \"$ok\" = 1 ] && mkdir -p /var/lib/{gid} && touch /var/lib/{gid}/flatpak-setup.done"
+    ));
+    lines.push("exit 0".to_string());
+    lines.join("\n") + "\n"
+}
+
+fn distrobox_ini(cfg: &Config) -> String {
+    let mut out = vec![
+        "# Erzeugt von Distro Builder – wird beim ersten Anmelden mit 'distrobox assemble' angelegt"
+            .to_string(),
+        String::new(),
+    ];
+    for b in &cfg.distrobox.boxes {
+        out.push(format!("[{}]", b.name));
+        out.push(format!("image={}", b.image));
+        out.push("pull=true".to_string());
+        out.push("replace=false".to_string());
+        let pkgs = C::split_list(&b.packages).join(" ");
+        if !pkgs.is_empty() {
+            out.push(format!("additional_packages=\"{pkgs}\""));
+        }
+        let apps = C::split_list(&b.export).join(" ");
+        if !apps.is_empty() {
+            out.push(format!("exported_apps=\"{apps}\""));
+        }
+        out.push(String::new());
+    }
+    out.join("\n")
+}
+
+/// Flatpak-Quellen/Apps und Distrobox-Container (werden beim ersten Start bzw. Anmelden eingerichtet).
+fn build_apps(cfg: &Config, root: &Path) -> std::io::Result<Vec<String>> {
+    let g = &cfg.general;
+    let gid = &g.id;
+    let mut execs = Vec::new();
+    if cfg.flatpak.enabled {
+        write_file(
+            &root
+                .join("usr/local/bin")
+                .join(format!("{gid}-flatpak-setup")),
+            &flatpak_setup_script(cfg),
+        )?;
+        execs.push(format!("/usr/local/bin/{gid}-flatpak-setup"));
+        write_file(
+            &root.join("etc/systemd/system").join(format!("{gid}-flatpak-setup.service")),
+            &format!(
+                "[Unit]\nDescription={}: Flatpak-Quellen und Apps einrichten\nWants=network-online.target\nAfter=network-online.target\nConditionPathExists=!/var/lib/{gid}/flatpak-setup.done\n{}\n[Service]\nType=oneshot\nExecStart=/usr/local/bin/{gid}-flatpak-setup\nTimeoutStartSec=0\n\n[Install]\nWantedBy=multi-user.target\n",
+                g.name,
+                // Reines Live-System: keine spätere Installation, also auch live einrichten
+                if C::live_only(cfg) {
+                    String::new()
+                } else {
+                    format!("{NOT_LIVE}\n")
+                }
+            ),
+        )?;
+    }
+    if C::distrobox_active(cfg) && !cfg.distrobox.boxes.is_empty() {
+        write_file(
+            &root.join("etc").join(gid).join("distrobox.ini"),
+            &distrobox_ini(cfg),
+        )?;
+        if cfg.containers.engine == "docker" {
+            write_file(
+                &root.join("etc/distrobox/distrobox.conf"),
+                "container_manager=\"docker\"\n",
+            )?;
+        }
+        let state = format!("%h/.local/state/{gid}");
+        let unit = format!("{gid}-distrobox.service");
+        write_file(
+            &root.join("etc/systemd/user").join(&unit),
+            &format!(
+                "[Unit]\nDescription={}: Distrobox-Container einrichten\nConditionPathExists=!{state}/distrobox.done\n{NOT_LIVE}\n\n[Service]\nType=oneshot\nExecStart=/usr/bin/distrobox assemble create --file /etc/{gid}/distrobox.ini\nExecStartPost=/usr/bin/mkdir -p {state}\nExecStartPost=/usr/bin/touch {state}/distrobox.done\nTimeoutStartSec=0\n\n[Install]\nWantedBy=default.target\n",
+                g.name
+            ),
+        )?;
+        // global für alle Benutzer aktivieren (entspricht 'systemctl --global enable')
+        symlink(
+            &format!("/etc/systemd/user/{unit}"),
+            &root
+                .join("etc/systemd/user/default.target.wants")
+                .join(&unit),
+        )?;
+    }
+    Ok(execs)
+}
+
+/// Eigene Dienste, die im installierten System aktiviert werden.
+fn extra_services(cfg: &Config) -> Vec<String> {
+    let mut svcs = compose_services(cfg);
+    if cfg.flatpak.enabled {
+        svcs.push(format!("{}-flatpak-setup.service", cfg.general.id));
+    }
+    svcs
+}
+
+pub fn flatpak_preload(cfg: &Config) -> bool {
+    cfg.flatpak.enabled && cfg.flatpak.preload && !C::flatpak_apps(cfg).is_empty()
+}
+
+/// Bash-Abschnitt für build.sh: lädt Flatpaks in eine eigene Installation im Cache (als root).
+fn flatpak_preload_script(cfg: &Config, target: &str) -> String {
+    if !flatpak_preload(cfg) {
+        return String::new();
+    }
+    let farch = C::pacman_arch(cfg);
+    let mut lines = vec![
+        String::new(),
+        "# Flatpak-Apps vorladen (schlägt das fehl, installiert sie das System beim ersten Start)"
+            .to_string(),
+        format!("FLATPAK_CACHE=\"$BASE/cache/flatpak-{farch}\""),
+        "flatpak_preload() {".to_string(),
+        "  mkdir -p -- \"$FLATPAK_CACHE\"".to_string(),
+        "  export FLATPAK_SYSTEM_DIR=\"$FLATPAK_CACHE\"".to_string(),
+    ];
+    for (name, url) in C::flatpak_remotes(cfg) {
+        lines.push(format!(
+            "  flatpak remote-add --system --if-not-exists {} {} || return 1",
+            quote_str(&name),
+            quote_str(&url)
+        ));
+    }
+    let mut by_remote: Vec<(String, Vec<String>)> = Vec::new();
+    for (remote, app) in C::flatpak_apps(cfg) {
+        match by_remote.iter_mut().find(|(r, _)| *r == remote) {
+            Some((_, apps)) => apps.push(app),
+            None => by_remote.push((remote, vec![app])),
+        }
+    }
+    for (remote, apps) in by_remote {
+        let apps_q: Vec<String> = apps.iter().map(|a| quote_str(a)).collect();
+        lines.push(format!(
+            "  flatpak install --system --noninteractive --or-update --arch={farch} {} {} || return 1",
+            quote_str(&remote),
+            apps_q.join(" ")
+        ));
+    }
+    let (uid, gid) = unsafe { (libc_getuid(), libc_getgid()) };
+    lines.extend([
+        "}".to_string(),
+        "if ! command -v flatpak >/dev/null; then".to_string(),
+        "  echo \"WARNUNG: flatpak ist nicht installiert – die Apps werden erst beim ersten Start geladen.\"".to_string(),
+        "elif echo '==> Lade Flatpak-Apps' && flatpak_preload; then".to_string(),
+        target.to_string(),
+        "else".to_string(),
+        "  echo \"WARNUNG: Flatpak-Apps konnten nicht vorgeladen werden – sie werden beim ersten Start geladen.\"".to_string(),
+        "fi".to_string(),
+        format!("chown -R {uid}:{gid} -- \"$BASE/cache\" 2>/dev/null || true"),
+        String::new(),
+    ]);
+    lines.join("\n")
+}
+
+/// Konfigurationsdateien für die automatische Anmeldung (Pfad -> Inhalt).
+pub fn autologin_files(dm: &str, session: &str, user: &str) -> Vec<(&'static str, String)> {
+    match dm {
+        "sddm" => vec![(
+            "etc/sddm.conf.d/autologin.conf",
+            format!("[Autologin]\nUser={user}\nSession={session}\n"),
+        )],
+        "gdm" => vec![(
+            "etc/gdm/custom.conf",
+            format!("[daemon]\nAutomaticLoginEnable=True\nAutomaticLogin={user}\n"),
+        )],
+        "lightdm" => vec![(
+            "etc/lightdm/lightdm.conf.d/50-autologin.conf",
+            format!("[Seat:*]\nautologin-user={user}\nautologin-session={session}\n"),
+        )],
+        _ => vec![],
+    }
 }
 
 fn compose_services(cfg: &Config) -> Vec<String> {
@@ -604,16 +805,29 @@ fn walk_releng(
 
 pub fn pacman_conf(cfg: &Config) -> String {
     let r = &cfg.repos;
-    let server = if !r.mirror.trim().is_empty() {
+    let default_server = if !r.mirror.trim().is_empty() {
         format!("Server = {}", r.mirror.trim())
     } else {
         "Include = /etc/pacman.d/mirrorlist".to_string()
     };
+    // Eigener Spiegel zuerst, die bisherige Quelle bleibt auf Wunsch als Ausweich dahinter
+    let ms = &cfg.mirror_server;
+    let mut servers = Vec::new();
+    if ms.enabled {
+        servers.push(crate::mirror::server_line(cfg));
+    }
+    if !ms.enabled || ms.fallback {
+        servers.push(default_server);
+    }
+    let arm = C::is_image(cfg);
     let mut out = vec![
         "# Erzeugt von Distro Builder".to_string(),
         "[options]".to_string(),
         "HoldPkg     = pacman glibc".to_string(),
-        "Architecture = auto".to_string(),
+        format!(
+            "Architecture = {}",
+            if arm { C::pacman_arch(cfg) } else { "auto" }
+        ),
         "Color".to_string(),
         "ILoveCandy".to_string(),
         "ParallelDownloads = 5".to_string(),
@@ -621,6 +835,15 @@ pub fn pacman_conf(cfg: &Config) -> String {
         "LocalFileSigLevel = Optional".to_string(),
         String::new(),
     ];
+    if ms.enabled && ms.own_repo {
+        out.push(format!("[{}]", cfg.general.id));
+        out.push("SigLevel = Optional TrustAll".to_string());
+        out.push(format!(
+            "Server = {}/$repo/os/$arch",
+            crate::mirror::base_url(cfg)
+        ));
+        out.push(String::new());
+    }
     for repo in r.custom.iter().filter(|r| r.first) {
         out.push(format!("[{}]", repo.name));
         out.push(format!(
@@ -634,16 +857,27 @@ pub fn pacman_conf(cfg: &Config) -> String {
         out.push(format!("Server = {}", repo.server));
         out.push(String::new());
     }
-    for (enabled, name) in [
-        (r.core_testing, "core-testing"),
-        (r.core, "core"),
-        (r.extra_testing, "extra-testing"),
-        (r.extra, "extra"),
-        (r.multilib, "multilib"),
-    ] {
-        if enabled || name == "core" {
+    // Arch Linux ARM: keine Testing- und multilib-Repos, dafür [alarm] und [aur]
+    let official: Vec<(bool, &str)> = if arm {
+        vec![
+            (true, "core"),
+            (r.extra, "extra"),
+            (true, "alarm"),
+            (true, "aur"),
+        ]
+    } else {
+        vec![
+            (r.core_testing, "core-testing"),
+            (true, "core"),
+            (r.extra_testing, "extra-testing"),
+            (r.extra, "extra"),
+            (r.multilib, "multilib"),
+        ]
+    };
+    for (enabled, name) in official {
+        if enabled {
             out.push(format!("[{name}]"));
-            out.push(server.clone());
+            out.extend(servers.iter().cloned());
             out.push(String::new());
         }
     }
@@ -672,6 +906,9 @@ pub fn installer_json(cfg: &Config, live_files: &[String], live_dirs: &[String])
     if cfg.containers.preload && !C::container_images(cfg).is_empty() {
         data_paths.push(format!("/var/lib/{}/container-images", g.id));
     }
+    if flatpak_preload(cfg) {
+        data_paths.push(format!("/var/lib/{}/flatpak.tar", g.id));
+    }
     let conf = InstallerConf {
         name: g.name.clone(),
         id: g.id.clone(),
@@ -685,7 +922,7 @@ pub fn installer_json(cfg: &Config, live_files: &[String], live_dirs: &[String])
         packages: C::target_packages(cfg),
         services: {
             let mut s = C::target_services(cfg);
-            s.extend(compose_services(cfg));
+            s.extend(extra_services(cfg));
             s
         },
         kernel_params: C::kernel_params(cfg),
@@ -732,6 +969,50 @@ fn rebrand_boot(profile: &Path, name: &str) -> std::io::Result<()> {
                 .replace("Arch Linux", name);
             if new != text {
                 fs::write(&entry, new)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn live_setup_script(cfg: &Config) -> String {
+    let l = &cfg.live;
+    let flag = |b: bool| if b { "1" } else { "0" };
+    template("live-setup.sh", cfg)
+        .replace("@@LIVEUSER@@", &l.username)
+        .replace("@@LIVEHASH@@", &l.password_hash)
+        .replace("@@SUDO@@", &l.sudo)
+        .replace("@@AUTOLOGIN@@", flag(l.autologin))
+        .replace("@@FASTFETCH@@", flag(cfg.branding.fastfetch_on_terminal))
+}
+
+/// Hängt einen Kernel-Parameter an alle Live-Booteinträge an (UEFI, GRUB, Syslinux; ohne PXE).
+fn add_boot_param(profile: &Path, param: &str) -> std::io::Result<()> {
+    for sub in ["efiboot", "grub", "syslinux"] {
+        for file in walkdir(&profile.join(sub)) {
+            let name = file.file_name().map(|n| n.to_string_lossy().into_owned());
+            if name.as_deref().is_none_or(|n| n.contains("pxe")) {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&file) else {
+                continue;
+            };
+            let new: Vec<String> = text
+                .lines()
+                .map(|line| {
+                    if line.contains("archisobasedir=") && !line.contains(param) {
+                        format!("{line} {param}")
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect();
+            let mut new = new.join("\n");
+            if text.ends_with('\n') {
+                new.push('\n');
+            }
+            if new != text {
+                fs::write(&file, new)?;
             }
         }
     }
@@ -822,8 +1103,18 @@ pub fn build_script(cfg: &Config) -> String {
     let pth = paths(cfg);
     let uid = unsafe { libc_getuid() };
     let gid = unsafe { libc_getgid() };
+    // Flatpaks als Tar-Archiv: mkarchiso kopiert airootfs ohne Dateirechte, das Archiv behält sie
+    let tar = format!(
+        "\"$PROFILE/airootfs/var/lib/{}/flatpak.tar\"",
+        cfg.general.id
+    );
+    let flatpak = flatpak_preload_script(
+        cfg,
+        &format!("  tar -C \"$FLATPAK_CACHE\" -cf {tar} . && chown {uid}:{gid} -- {tar}"),
+    );
     format!(
-        "#!/bin/bash\n# Erzeugt von Distro Builder – kann auch manuell mit 'sudo bash build.sh' ausgeführt werden.\nset -euo pipefail\nPROFILE={}\nWORK={}\nOUT={}\nif ! command -v mkarchiso >/dev/null; then\n  echo \"FEHLER: mkarchiso nicht gefunden. Bitte 'pacman -S archiso' installieren.\" >&2\n  exit 1\nfi\ncleanup() {{ rm -rf -- \"$WORK\"; }}\ntrap cleanup EXIT\nrm -rf -- \"$WORK\"\nmkdir -p -- \"$OUT\"\nmkarchiso -v -r -w \"$WORK\" -o \"$OUT\" \"$PROFILE\"\nchown -R {uid}:{gid} -- \"$OUT\"\necho \"##DONE##\"\n",
+        "#!/bin/bash\n# Erzeugt von Distro Builder – kann auch manuell mit 'sudo bash build.sh' ausgeführt werden.\nset -euo pipefail\nBASE={}\nPROFILE={}\nWORK={}\nOUT={}\nif ! command -v mkarchiso >/dev/null; then\n  echo \"FEHLER: mkarchiso nicht gefunden. Bitte 'pacman -S archiso' installieren.\" >&2\n  exit 1\nfi\ncleanup() {{ rm -rf -- \"$WORK\"; }}\ntrap cleanup EXIT\nrm -rf -- \"$WORK\"\nmkdir -p -- \"$OUT\"\n{flatpak}\nmkarchiso -v -r -w \"$WORK\" -o \"$OUT\" \"$PROFILE\"\nchown -R {uid}:{gid} -- \"$OUT\"\necho \"##DONE##\"\n",
+        quote_str(&pth.base.to_string_lossy()),
         quote_str(&pth.profile.to_string_lossy()),
         quote_str(&pth.work.to_string_lossy()),
         quote_str(&pth.out.to_string_lossy()),
@@ -890,6 +1181,9 @@ pub fn generate(
     if !errors.is_empty() {
         return Err(ProfileError::Validation(errors.join("\n")));
     }
+    if C::is_image(cfg) {
+        return generate_image(cfg, log);
+    }
     if !releng.is_dir() {
         return Err(ProfileError::MissingReleng(
             releng.to_string_lossy().into_owned(),
@@ -944,6 +1238,9 @@ pub fn generate(
         ),
     )?;
     let execs = build_overlay(cfg, &air)?;
+    if flatpak_preload(cfg) {
+        fs::create_dir_all(air.join("var/lib").join(gid))?;
+    }
     let staging = air.join("usr/share").join(gid).join("overlay");
     build_overlay(cfg, &staging)?;
     let mut overlay_files = HashSet::new();
@@ -989,43 +1286,79 @@ pub fn generate(
             &systemd.join("display-manager.service"),
         )?;
         let session = desktop.session.unwrap_or("");
-        match dm {
-            "sddm" => write_file(
-                &air.join("etc/sddm.conf.d/autologin.conf"),
-                &format!("[Autologin]\nUser=live\nSession={session}\n"),
-            )?,
-            "gdm" => write_file(
-                &air.join("etc/gdm/custom.conf"),
-                "[daemon]\nAutomaticLoginEnable=True\nAutomaticLogin=live\n",
-            )?,
-            "lightdm" => write_file(
-                &air.join("etc/lightdm/lightdm.conf.d/50-autologin.conf"),
-                &format!("[Seat:*]\nautologin-user=live\nautologin-session={session}\n"),
-            )?,
-            _ => {}
+        if cfg.live.autologin {
+            for (rel, content) in autologin_files(dm, session, &cfg.live.username) {
+                write_file(&air.join(rel), &content)?;
+            }
         }
+    }
 
-        let script = template("live-setup.sh", cfg).replace(
-            "@@FASTFETCH@@",
-            if cfg.branding.fastfetch_on_terminal {
-                "1"
-            } else {
-                "0"
-            },
-        );
-        write_file(&air.join("usr/local/bin/live-setup"), &script)?;
-        perms.push((
-            "/usr/local/bin/live-setup".to_string(),
-            "0:0:755".to_string(),
-        ));
+    // Live-Benutzer (mit und ohne Desktop)
+    let live = &cfg.live;
+    log(&format!(
+        "Live-Benutzer: {} ({}, {})",
+        live.username,
+        if live.password_hash.is_empty() {
+            "ohne Passwort"
+        } else {
+            "mit Passwort"
+        },
+        C::sudo_modes()
+            .into_iter()
+            .find(|(k, _)| *k == live.sudo)
+            .map(|(_, l)| l)
+            .unwrap_or("sudo ohne Passwort")
+    ));
+    write_file(
+        &air.join("usr/local/bin/live-setup"),
+        &live_setup_script(cfg),
+    )?;
+    perms.push((
+        "/usr/local/bin/live-setup".to_string(),
+        "0:0:755".to_string(),
+    ));
+    write_file(
+        &systemd.join("live-setup.service"),
+        &template("live-setup.service", cfg),
+    )?;
+    symlink(
+        "/etc/systemd/system/live-setup.service",
+        &systemd.join("multi-user.target.wants/live-setup.service"),
+    )?;
+    // Konsole: statt root automatisch als Live-Benutzer anmelden (oder Anmeldemaske)
+    let getty = systemd.join("getty@tty1.service.d/autologin.conf");
+    if live.autologin {
         write_file(
-            &systemd.join("live-setup.service"),
-            &template("live-setup.service", cfg),
+            &getty,
+            &format!(
+                "[Service]\nExecStart=\nExecStart=-/usr/bin/agetty --noreset --noclear --autologin {} - ${{TERM}}\n",
+                live.username
+            ),
         )?;
+    } else {
+        remove_path(&getty);
+    }
+    if C::live_only(cfg) && cfg.flatpak.enabled {
         symlink(
-            "/etc/systemd/system/live-setup.service",
-            &systemd.join("multi-user.target.wants/live-setup.service"),
+            &format!("/etc/systemd/system/{gid}-flatpak-setup.service"),
+            &systemd.join(format!(
+                "multi-user.target.wants/{gid}-flatpak-setup.service"
+            )),
         )?;
+        if flatpak_preload(cfg) {
+            // Mitgelieferte Flatpaks direkt ins SquashFS: Der Hook läuft während mkarchiso im
+            // chroot (Dateirechte bleiben erhalten) und wird danach von releng wieder entfernt.
+            write_file(
+                &air.join("etc/pacman.d/hooks").join(format!("zz-{gid}-flatpak-live.hook")),
+                &format!(
+                    "# remove from airootfs!\n[Trigger]\nOperation = Install\nType = Package\nTarget = flatpak\n\n[Action]\nDescription = Flatpak-Apps ins Live-System übernehmen...\nWhen = PostTransaction\nExec = /bin/sh -c 'T=/var/lib/{gid}/flatpak.tar; [ -f \"$T\" ] && mkdir -p /var/lib/flatpak && tar -xpf \"$T\" -C /var/lib/flatpak && rm -f \"$T\"; exit 0'\n"
+                ),
+            )?;
+        }
+    }
+    if live.copytoram {
+        add_boot_param(profile, "copytoram")?;
+        log("Live-System wird beim Start in den RAM geladen (copytoram)");
     }
 
     // Installer
@@ -1124,6 +1457,200 @@ pub fn generate(
     Ok(pth)
 }
 
+// ---------------------------------------------------------------- ARM: fertiges Disk-Image
+
+/// Arch Linux ARM Build System
+const ALARM_KEY: &str = "68B3537F39A313B3E574D06777193F152BDBE6A6";
+
+fn image_services(cfg: &Config) -> Vec<String> {
+    let gid = &cfg.general.id;
+    let mut svcs = C::target_services(cfg);
+    svcs.extend(extra_services(cfg));
+    for s in [
+        format!("{gid}-growfs.service"),
+        format!("{gid}-pacman-init.service"),
+    ] {
+        if !svcs.contains(&s) {
+            svcs.push(s);
+        }
+    }
+    svcs
+}
+
+fn keyboard_conf(kb: &str) -> String {
+    format!(
+        "Section \"InputClass\"\n    Identifier \"system-keyboard\"\n    MatchIsKeyboard \"on\"\n    Option \"XkbLayout\" \"{kb}\"\nEndSection\n"
+    )
+}
+
+/// Systemeinstellungen, die beim ISO der Installer setzt – hier direkt ins Image.
+fn image_overlay(cfg: &Config, air: &Path) -> std::io::Result<()> {
+    let (g, i, img) = (&cfg.general, &cfg.installer, &cfg.image);
+    let (gid, host, kb) = (&g.id, &g.hostname, &i.keyboard);
+    write_file(&air.join("etc/hostname"), &format!("{host}\n"))?;
+    write_file(
+        &air.join("etc/hosts"),
+        &format!("127.0.0.1 localhost\n::1 localhost\n127.0.1.1 {host}.localdomain {host}\n"),
+    )?;
+    write_file(
+        &air.join("etc/locale.conf"),
+        &format!("LANG={}\n", i.locale),
+    )?;
+    write_file(
+        &air.join("etc/vconsole.conf"),
+        &format!("KEYMAP={}\n", console_keymap(kb)),
+    )?;
+    write_file(
+        &air.join("etc/X11/xorg.conf.d/00-keyboard.conf"),
+        &keyboard_conf(kb),
+    )?;
+    write_file(
+        &air.join("etc/sudoers.d/10-wheel"),
+        "%wheel ALL=(ALL:ALL) ALL\n",
+    )?;
+    let desktop = C::desktop_info(cfg);
+    if let Some(dm) = desktop.display_manager {
+        if img.autologin {
+            for (rel, content) in autologin_files(dm, desktop.session.unwrap_or(""), &img.username)
+            {
+                write_file(&air.join(rel), &content)?;
+            }
+        }
+    }
+    write_file_mode(
+        &air.join("usr/local/bin").join(format!("{gid}-growfs")),
+        &format!(
+            "#!/bin/sh\n# Vergrößert die Root-Partition beim ersten Start auf den ganzen Datenträger\nset -e\nROOT=$(findmnt -no SOURCE /)\nDISK=/dev/$(lsblk -no PKNAME \"$ROOT\")\nPART=$(cat \"/sys/class/block/$(basename \"$ROOT\")/partition\")\nsfdisk --relocate gpt-bak-std \"$DISK\" 2>/dev/null || true\necho ', +' | sfdisk --force --no-reread -N \"$PART\" \"$DISK\" || true\npartx -u \"$DISK\" || true\nresize2fs \"$ROOT\"\nmkdir -p /var/lib/{gid} && touch /var/lib/{gid}/growfs.done\n"
+        ),
+        0o755,
+    )?;
+    write_file(
+        &air.join("etc/systemd/system").join(format!("{gid}-growfs.service")),
+        &format!(
+            "[Unit]\nDescription={}: Root-Partition vergrößern\nConditionPathExists=!/var/lib/{gid}/growfs.done\nAfter=local-fs.target\n\n[Service]\nType=oneshot\nExecStart=/usr/local/bin/{gid}-growfs\n\n[Install]\nWantedBy=multi-user.target\n",
+            g.name
+        ),
+    )?;
+    write_file(
+        &air.join("etc/systemd/system").join(format!("{gid}-pacman-init.service")),
+        &format!(
+            "[Unit]\nDescription={}: Paketschlüssel einrichten\nConditionPathExists=!/etc/pacman.d/gnupg\nBefore=archlinux-keyring-wkd-sync.service\n\n[Service]\nType=oneshot\nExecStart=/usr/bin/pacman-key --init\nExecStart=/usr/bin/pacman-key --populate archlinuxarm\n\n[Install]\nWantedBy=multi-user.target\n",
+            g.name
+        ),
+    )?;
+    Ok(())
+}
+
+pub fn image_setup_script(cfg: &Config) -> String {
+    let (g, i, img) = (&cfg.general, &cfg.installer, &cfg.image);
+    let services: Vec<String> = image_services(cfg).iter().map(|s| quote_str(s)).collect();
+    let flag = |b: bool| if b { "1" } else { "0" };
+    let has_dm = C::desktop_info(cfg).display_manager.is_some();
+    let vars = [
+        format!("PLATFORM={}", quote_str(C::arch(cfg))),
+        format!("KERNEL={}", quote_str(&C::kernel(cfg))),
+        format!("NAME={}", quote_str(&g.name)),
+        format!("GID={}", quote_str(&g.id)),
+        format!("USERNAME={}", quote_str(&img.username)),
+        format!("PASSWORD={}", quote_str(&img.password)),
+        format!("EXPIRE={}", flag(img.expire_password)),
+        format!("AUTOLOGIN={}", flag(img.autologin && has_dm)),
+        format!("FASTFETCH={}", flag(cfg.branding.fastfetch_on_terminal)),
+        format!("DESKTOP={}", flag(cfg.packages.desktop != "none")),
+        format!("LOCALE={}", quote_str(&i.locale)),
+        format!("TIMEZONE={}", quote_str(&i.timezone)),
+        format!("KPARAMS={}", quote_str(&C::kernel_params(cfg).join(" "))),
+        format!("SERVICES=({})", services.join(" ")),
+    ]
+    .join("\n");
+    include_str!("../templates/image-setup.sh")
+        .replace("@@NAME@@", &g.name)
+        .replace("@@VARS@@", &vars)
+}
+
+pub fn image_build_script(cfg: &Config) -> String {
+    let pth = paths(cfg);
+    let g = &cfg.general;
+    let plat = C::arch(cfg);
+    let (uid, gid) = unsafe { (libc_getuid(), libc_getgid()) };
+    let label_re = Regex::new(r"[^A-Za-z0-9_]").unwrap();
+    let mut label = label_re.replace_all(&g.id, "_").into_owned();
+    label.truncate(16);
+    let layout = if plat == "rpi" {
+        "'label: dos\\n,512MiB,c,*\\n,,L\\n'"
+    } else {
+        "'label: gpt\\n,512MiB,U\\n,,L\\n'"
+    };
+    let flatpak = flatpak_preload_script(
+        cfg,
+        "  mkdir -p \"$MNT/var/lib/flatpak\" && cp -a \"$FLATPAK_CACHE/.\" \"$MNT/var/lib/flatpak/\" && chown -R 0:0 \"$MNT/var/lib/flatpak\"",
+    );
+    let (tool, compress) = if cfg.build.compression == "xz" {
+        ("xz", "xz -T0 -c \"$IMG\" > \"$OUT/$IMG_NAME.img.xz\"")
+    } else {
+        (
+            "zstd",
+            "zstd -T0 -q -f -o \"$OUT/$IMG_NAME.img.zst\" \"$IMG\"",
+        )
+    };
+    include_str!("../templates/image-build.sh")
+        .replace("@@ARCH_LABEL@@", C::arch_info(cfg).label)
+        .replace("@@BASE@@", &quote_str(&pth.base.to_string_lossy()))
+        .replace("@@PROFILE@@", &quote_str(&pth.profile.to_string_lossy()))
+        .replace("@@WORK@@", &quote_str(&pth.work.to_string_lossy()))
+        .replace("@@OUT@@", &quote_str(&pth.out.to_string_lossy()))
+        .replace("@@URL@@", &quote_str(C::alarm_tarball(plat)))
+        .replace(
+            "@@IMG_PREFIX@@",
+            &quote_str(&format!("{}-{}-{plat}-", g.id, g.version)),
+        )
+        .replace("@@SIZE_GB@@", &cfg.image.size_gb.to_string())
+        .replace("@@ALARM_KEY@@", ALARM_KEY)
+        .replace("@@LAYOUT@@", layout)
+        .replace("@@LABEL@@", &quote_str(&label))
+        .replace("@@FLATPAK@@", &flatpak)
+        .replace("@@TOOL@@", tool)
+        .replace("@@COMPRESS@@", compress)
+        .replace("@@UID@@", &uid.to_string())
+        .replace("@@GID@@", &gid.to_string())
+}
+
+/// Profil für ein fertiges ARM-Image: Overlay, Paketliste, Einrichtungsskript und build.sh.
+pub fn generate_image(cfg: &Config, mut log: impl FnMut(&str)) -> Result<Paths, ProfileError> {
+    let pth = paths(cfg);
+    fs::create_dir_all(&pth.base)?;
+    let profile = &pth.profile;
+    log(&format!(
+        "Erzeuge Image-Profil für {} in {}",
+        C::arch_info(cfg).label,
+        profile.display()
+    ));
+    remove_path(profile);
+    let air = profile.join("airootfs");
+    fs::create_dir_all(&air)?;
+    let execs = build_overlay(cfg, &air)?;
+    image_overlay(cfg, &air)?;
+    for e in &execs {
+        let path = air.join(e.trim_start_matches('/'));
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+    }
+    let pkgs = C::image_packages(cfg);
+    write_file(&profile.join("packages.txt"), &(pkgs.join("\n") + "\n"))?;
+    log(&format!("{} Pakete, Kernel {}", pkgs.len(), C::kernel(cfg)));
+    write_file(&profile.join("pacman.conf"), &pacman_conf(cfg))?;
+    write_file_mode(&profile.join("setup.sh"), &image_setup_script(cfg), 0o600)?;
+    if cfg.ai.ollama && !cfg.ai.models.is_empty() {
+        log(&format!("KI-Modelle: {}", cfg.ai.models.join(", ")));
+    }
+    write_file_mode(&pth.script, &image_build_script(cfg), 0o755)?;
+    write_file(
+        &pth.base.join("project.json"),
+        &serde_json::to_string_pretty(cfg).unwrap(),
+    )?;
+    log("Profil fertig");
+    Ok(pth)
+}
+
 fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
@@ -1191,6 +1718,281 @@ mod tests {
         assert!(!text.contains("[core-testing]"));
     }
 
+    fn check_bash(path: &Path) {
+        let out = std::process::Command::new("bash")
+            .arg("-n")
+            .arg(path)
+            .output()
+            .expect("bash");
+        assert!(
+            out.status.success(),
+            "{}: {}",
+            path.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    #[test]
+    fn mirror_in_pacman_conf() {
+        let mut cfg = C::default_config();
+        cfg.general.id = "meinos".into();
+        cfg.mirror_server.enabled = true;
+        cfg.mirror_server.url = "http://192.168.1.10:8080/".into();
+        cfg.mirror_server.own_repo = true;
+        let text = pacman_conf(&cfg);
+        let core = text.find("[core]").unwrap();
+        let own = text.find("[meinos]").unwrap();
+        assert!(own < core, "eigenes Repo vor den offiziellen");
+        let block = &text[core..text[core..].find("\n\n").map(|i| core + i).unwrap()];
+        assert_eq!(
+            block,
+            "[core]\nServer = http://192.168.1.10:8080/$repo/os/$arch\nInclude = /etc/pacman.d/mirrorlist"
+        );
+        cfg.mirror_server.fallback = false;
+        assert!(!pacman_conf(&cfg).contains("Include = /etc/pacman.d/mirrorlist"));
+        cfg.mirror_server.enabled = false;
+        assert!(!pacman_conf(&cfg).contains("192.168.1.10"));
+    }
+
+    #[test]
+    fn arm_repos() {
+        let mut cfg = C::default_config();
+        cfg.build.arch = "rpi".into();
+        cfg.repos.multilib = true;
+        cfg.repos.core_testing = true;
+        let text = pacman_conf(&cfg);
+        assert!(text.contains("Architecture = aarch64"));
+        assert!(text.contains("[alarm]"));
+        assert!(!text.contains("[multilib]"));
+        assert!(!text.contains("[core-testing]"));
+    }
+
+    #[test]
+    fn distrobox_ini_content() {
+        let mut cfg = C::default_config();
+        cfg.distrobox.enabled = true;
+        cfg.distrobox.boxes = vec![crate::config::DistroboxBox {
+            name: "ubuntu".into(),
+            image: "docker.io/library/ubuntu:24.04".into(),
+            packages: "git, curl".into(),
+            export: "code".into(),
+        }];
+        let ini = distrobox_ini(&cfg);
+        assert!(ini.contains("[ubuntu]"));
+        assert!(ini.contains("additional_packages=\"git curl\""));
+        assert!(ini.contains("exported_apps=\"code\""));
+    }
+
+    #[test]
+    fn live_setup_template() {
+        let mut cfg = C::default_config();
+        cfg.live.username = "gast".into();
+        cfg.live.password_hash = crate::passwd::sha512_crypt("geheim", "salz", None);
+        cfg.live.sudo = "password".into();
+        let script = live_setup_script(&cfg);
+        assert!(!script.contains("@@"), "unersetzter Platzhalter");
+        assert!(script.contains("U='gast'"));
+        assert!(script.contains(&format!("HASH='{}'", cfg.live.password_hash)));
+        assert!(!script.contains("geheim"), "Klartext-Passwort im Skript");
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("live-setup");
+        fs::write(&path, &script).unwrap();
+        check_bash(&path);
+    }
+
+    #[test]
+    fn boot_param_only_on_live_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prof = tmp.path();
+        write_file(
+            &prof.join("efiboot/loader/entries/01-archiso-linux.conf"),
+            "title x\nlinux /a\noptions archisobasedir=arch archisosearchfilename=x\n",
+        )
+        .unwrap();
+        write_file(
+            &prof.join("efiboot/loader/entries/03-memtest.conf"),
+            "title memtest\nefi /memtest.efi\n",
+        )
+        .unwrap();
+        write_file(
+            &prof.join("syslinux/archiso_pxe-linux.cfg"),
+            "APPEND archisobasedir=arch ip=dhcp\n",
+        )
+        .unwrap();
+        add_boot_param(prof, "copytoram").unwrap();
+        add_boot_param(prof, "copytoram").unwrap();
+        let entry =
+            fs::read_to_string(prof.join("efiboot/loader/entries/01-archiso-linux.conf")).unwrap();
+        assert_eq!(entry.matches("copytoram").count(), 1);
+        assert!(
+            !fs::read_to_string(prof.join("efiboot/loader/entries/03-memtest.conf"))
+                .unwrap()
+                .contains("copytoram")
+        );
+        assert!(
+            !fs::read_to_string(prof.join("syslinux/archiso_pxe-linux.cfg"))
+                .unwrap()
+                .contains("copytoram")
+        );
+    }
+
+    /// ARM-Images brauchen keine releng-Vorlage – läuft in jedem `cargo test`.
+    #[test]
+    fn image_platforms() {
+        for plat in ["aarch64", "rpi"] {
+            let tmp = tempfile::tempdir().unwrap();
+            let mut cfg = make_cfg(tmp.path());
+            cfg.build.arch = plat.into();
+            cfg.packages.kernel = C::kernel(&cfg);
+            cfg.image.autologin = true;
+            cfg.flatpak.enabled = true;
+            cfg.flatpak.apps = vec!["org.mozilla.firefox".into()];
+            cfg.distrobox.enabled = true;
+            cfg.distrobox.boxes = vec![crate::config::DistroboxBox {
+                name: "debian".into(),
+                image: "debian:12".into(),
+                ..Default::default()
+            }];
+            let pth = generate(&cfg, |_| {}, Path::new("/nonexistent"), None).unwrap();
+            let prof = &pth.profile;
+            let air = prof.join("airootfs");
+            check_bash(&pth.script);
+            check_bash(&prof.join("setup.sh"));
+            let script = fs::read_to_string(&pth.script).unwrap();
+            assert!(script.contains(C::alarm_tarball(plat)));
+            assert!(script.contains(if plat == "rpi" {
+                "label: dos"
+            } else {
+                "label: gpt"
+            }));
+            assert!(script.contains("--arch=aarch64"));
+            assert!(
+                !script.contains("@@"),
+                "unersetzter Platzhalter in build.sh"
+            );
+            let setup = fs::read_to_string(prof.join("setup.sh")).unwrap();
+            assert!(setup.contains("\"testos-growfs.service\""));
+            assert!(setup.contains("\"testos-flatpak-setup.service\""));
+            assert!(!setup.contains("@@"), "unersetzter Platzhalter in setup.sh");
+            let pkgs = fs::read_to_string(prof.join("packages.txt")).unwrap();
+            assert!(pkgs.split_whitespace().any(|p| p == C::kernel(&cfg)));
+            for rel in [
+                "etc/sddm.conf.d/autologin.conf",
+                "etc/hostname",
+                "etc/testos/distrobox.ini",
+                "etc/systemd/user/default.target.wants/testos-distrobox.service",
+            ] {
+                assert!(fs::symlink_metadata(air.join(rel)).is_ok(), "{plat}: {rel}");
+            }
+            for exe in [
+                "testos-growfs",
+                "testos-flatpak-setup",
+                "testos-apply-branding",
+            ] {
+                let path = air.join("usr/local/bin").join(exe);
+                check_bash(&path);
+                let mode = fs::metadata(&path).unwrap().permissions().mode();
+                assert!(mode & 0o111 != 0, "{exe} nicht ausführbar");
+            }
+            assert!(!air.join("etc/distro-installer.json").exists());
+        }
+    }
+
+    #[test]
+    #[ignore = "requires archiso releng template; run with --include-ignored on Arch Linux"]
+    fn live_only_iso() {
+        if !releng_dir().is_dir() {
+            eprintln!("skipping: no releng at {}", releng_dir().display());
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = make_cfg(tmp.path());
+        cfg.installer.enabled = false;
+        cfg.live.username = "gast".into();
+        cfg.live.password_hash = crate::passwd::hash_password("geheim");
+        cfg.live.sudo = "password".into();
+        cfg.live.autologin = false;
+        cfg.live.copytoram = true;
+        cfg.flatpak.enabled = true;
+        cfg.flatpak.apps = vec!["org.mozilla.firefox".into()];
+        let pth = generate(&cfg, |_| {}, &releng_dir(), None).unwrap();
+        let prof = &pth.profile;
+        let air = prof.join("airootfs");
+        // Flatpaks laufen im reinen Live-System: Hook fürs SquashFS + aktivierter Dienst
+        let hook =
+            fs::read_to_string(air.join("etc/pacman.d/hooks/zz-testos-flatpak-live.hook")).unwrap();
+        assert!(hook.starts_with("# remove from airootfs!"));
+        assert!(fs::symlink_metadata(
+            air.join("etc/systemd/system/multi-user.target.wants/testos-flatpak-setup.service")
+        )
+        .is_ok());
+        let unit = fs::read_to_string(air.join("etc/systemd/system/testos-flatpak-setup.service"))
+            .unwrap();
+        assert!(!unit.contains("archisobasedir"), "{unit}");
+        assert!(!air.join("etc/distro-installer.json").exists());
+        assert!(!air.join("usr/local/bin/distro-installer").exists());
+        assert!(!air.join("etc/sddm.conf.d/autologin.conf").exists());
+        assert!(!air
+            .join("etc/systemd/system/getty@tty1.service.d/autologin.conf")
+            .exists());
+        let setup = fs::read_to_string(air.join("usr/local/bin/live-setup")).unwrap();
+        assert!(setup.contains("U='gast'") && setup.contains("SUDO='password'"));
+        let efi =
+            fs::read_to_string(prof.join("efiboot/loader/entries/01-archiso-linux.conf")).unwrap();
+        assert!(efi.contains("copytoram"));
+        let def = fs::read_to_string(prof.join("profiledef.sh")).unwrap();
+        assert!(def.contains("/usr/local/bin/live-setup"));
+    }
+
+    #[test]
+    #[ignore = "requires archiso releng template; run with --include-ignored on Arch Linux"]
+    fn flatpak_and_distrobox_iso() {
+        if !releng_dir().is_dir() {
+            eprintln!("skipping: no releng at {}", releng_dir().display());
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = make_cfg(tmp.path());
+        cfg.flatpak.enabled = true;
+        cfg.flatpak.apps = vec!["org.gimp.GIMP".into()];
+        cfg.distrobox.enabled = true;
+        cfg.distrobox.boxes = vec![crate::config::DistroboxBox {
+            name: "fedora".into(),
+            image: "registry.fedoraproject.org/fedora-toolbox:42".into(),
+            ..Default::default()
+        }];
+        let bins = locate_installer_binaries();
+        let pth = generate(&cfg, |_| {}, &releng_dir(), bins.as_ref()).unwrap();
+        let air = pth.profile.join("airootfs");
+        let conf: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(air.join("etc/distro-installer.json")).unwrap(),
+        )
+        .unwrap();
+        let has = |key: &str, val: &str| {
+            conf[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v.as_str() == Some(val))
+        };
+        assert!(has("services", "testos-flatpak-setup.service"));
+        assert!(has("data_paths", "/var/lib/testos/flatpak.tar"));
+        assert!(has("packages", "distrobox"));
+        assert!(fs::read_to_string(&pth.script)
+            .unwrap()
+            .contains("var/lib/testos/flatpak.tar"));
+        check_bash(&pth.script);
+        assert!(air.join("var/lib/testos").is_dir());
+        let overlay = air.join("usr/share/testos/overlay");
+        for rel in [
+            "etc/testos/distrobox.ini",
+            "etc/systemd/system/testos-flatpak-setup.service",
+            "etc/systemd/user/default.target.wants/testos-distrobox.service",
+        ] {
+            assert!(fs::symlink_metadata(overlay.join(rel)).is_ok(), "{rel}");
+        }
+    }
+
     #[test]
     #[ignore = "requires archiso releng template; run with --include-ignored on Arch Linux"]
     fn all_desktops() {
@@ -1206,6 +2008,13 @@ mod tests {
             let pth = generate(&cfg, |_| {}, &releng_dir(), bins.as_ref()).unwrap();
             let air = pth.profile.join("airootfs");
             assert!(air.join("usr/share/testos/os-release").is_file());
+            // Live-Benutzer gibt es immer, auch ohne Desktop
+            assert!(air.join("usr/local/bin/live-setup").is_file());
+            let getty = fs::read_to_string(
+                air.join("etc/systemd/system/getty@tty1.service.d/autologin.conf"),
+            )
+            .unwrap();
+            assert!(getty.contains("--autologin live"), "{getty}");
             let has_installer = key != "none";
             assert_eq!(
                 air.join("etc/distro-installer.json").is_file(),

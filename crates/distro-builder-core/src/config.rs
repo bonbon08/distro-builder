@@ -231,9 +231,209 @@ impl Default for Ai {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct FlatpakRemote {
+    pub name: String,
+    /// URL einer .flatpakrepo-Datei
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Flatpak {
+    pub enabled: bool,
+    pub flathub: bool,
+    /// Discover bzw. GNOME Software mit Flatpak-Unterstützung
+    pub store: bool,
+    /// Apps beim Bauen herunterladen und mitliefern
+    pub preload: bool,
+    pub remotes: Vec<FlatpakRemote>,
+    /// App-IDs, optional mit Quelle: "quelle:org.example.App"
+    pub apps: Vec<String>,
+}
+
+impl Default for Flatpak {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            flathub: true,
+            store: true,
+            preload: true,
+            remotes: Vec::new(),
+            apps: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct DistroboxBox {
+    pub name: String,
+    pub image: String,
+    /// zusätzliche Pakete im Container
+    pub packages: String,
+    /// Apps, die ins Menü des Hosts übernommen werden
+    pub export: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct Distrobox {
+    pub enabled: bool,
+    pub boxes: Vec<DistroboxBox>,
+}
+
+/// Eigener Spiegelserver für die Distro (Caching-Proxy oder vollständiger rsync-Spiegel).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MirrorServer {
+    /// Die Distro (Build, Live-System, installiertes System) nutzt den Spiegel
+    pub enabled: bool,
+    /// proxy | full
+    pub mode: String,
+    /// Adresse, unter der der Spiegel erreichbar ist, z. B. http://192.168.1.10:8080
+    pub url: String,
+    pub port: u16,
+    /// HTTP-Quelle des Proxys im pacman-Format ($repo/$arch); leer = Standard der Plattform
+    pub upstream: String,
+    /// rsync-Quelle für den vollständigen Spiegel
+    pub rsync_upstream: String,
+    /// Offizielle Mirrors als Ausweichquelle eintragen
+    pub fallback: bool,
+    /// Eigenes Paket-Repository [<id>] ausliefern
+    pub own_repo: bool,
+}
+
+impl Default for MirrorServer {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: "proxy".into(),
+            url: String::new(),
+            port: 8080,
+            upstream: String::new(),
+            rsync_upstream: "rsync://ftp.halifax.rwth-aachen.de/archlinux/".into(),
+            fallback: true,
+            own_repo: false,
+        }
+    }
+}
+
+pub fn mirror_modes() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("proxy", "Caching-Proxy – speichert nur, was gebraucht wird"),
+        ("full", "Vollständiger Spiegel per rsync (80 GB und mehr)"),
+    ]
+}
+
+/// HTTP-Quelle, aus der der Proxy lädt (pacman-Server-Format mit $repo/$arch).
+pub fn mirror_upstream(cfg: &Config) -> String {
+    let m = &cfg.mirror_server;
+    if !m.upstream.trim().is_empty() {
+        return m.upstream.trim().trim_end_matches('/').to_string();
+    }
+    if !cfg.repos.mirror.trim().is_empty() {
+        return cfg.repos.mirror.trim().trim_end_matches('/').to_string();
+    }
+    if is_image(cfg) {
+        "http://mirror.archlinuxarm.org/$arch/$repo".into()
+    } else {
+        "https://geo.mirror.pkgbuild.com/$repo/os/$arch".into()
+    }
+}
+
+/// Offizielle Repos, die die Distro nutzt (und die der Spiegel vorhält).
+pub fn official_repos(cfg: &Config) -> Vec<&'static str> {
+    let r = &cfg.repos;
+    if is_image(cfg) {
+        let mut v = vec!["core"];
+        if r.extra {
+            v.push("extra");
+        }
+        v.extend(["alarm", "aur"]);
+        return v;
+    }
+    let mut v = Vec::new();
+    if r.core_testing {
+        v.push("core-testing");
+    }
+    v.push("core");
+    if r.extra_testing {
+        v.push("extra-testing");
+    }
+    if r.extra {
+        v.push("extra");
+    }
+    if r.multilib {
+        v.push("multilib");
+    }
+    v
+}
+
+/// Live-System der ISO: Benutzer, Passwort und Startverhalten.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LiveCfg {
+    pub username: String,
+    /// SHA-512-crypt-Hash (`$6$…`); leer = ohne Passwort. Nie Klartext.
+    pub password_hash: String,
+    pub autologin: bool,
+    /// nopasswd | password | none
+    pub sudo: String,
+    /// Live-System beim Start komplett in den RAM laden (Stick kann danach entfernt werden)
+    pub copytoram: bool,
+}
+
+impl Default for LiveCfg {
+    fn default() -> Self {
+        Self {
+            username: "live".into(),
+            password_hash: String::new(),
+            autologin: true,
+            sudo: "nopasswd".into(),
+            copytoram: false,
+        }
+    }
+}
+
+pub fn sudo_modes() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("nopasswd", "sudo ohne Passwort"),
+        ("password", "sudo mit Passwort"),
+        ("none", "kein sudo"),
+    ]
+}
+
+/// Nur für ARM/Raspberry Pi: fertiges System statt ISO mit Installer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ImageCfg {
+    pub username: String,
+    pub password: String,
+    /// Passwort beim ersten Anmelden ändern
+    pub expire_password: bool,
+    pub autologin: bool,
+    pub size_gb: u32,
+}
+
+impl Default for ImageCfg {
+    fn default() -> Self {
+        Self {
+            username: "user".into(),
+            password: "user".into(),
+            expire_password: true,
+            autologin: false,
+            size_gb: 8,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Build {
+    /// x86_64 | aarch64 | rpi
+    pub arch: String,
     pub project_dir: String,
     /// zstd (schnell) | xz (klein)
     pub compression: String,
@@ -242,6 +442,7 @@ pub struct Build {
 impl Default for Build {
     fn default() -> Self {
         Self {
+            arch: "x86_64".into(),
             project_dir: default_project_dir(),
             compression: "zstd".into(),
         }
@@ -262,8 +463,13 @@ pub struct Config {
     pub repos: Repos,
     pub packages: Packages,
     pub installer: InstallerCfg,
+    pub live: LiveCfg,
+    pub mirror_server: MirrorServer,
     pub containers: Containers,
     pub ai: Ai,
+    pub flatpak: Flatpak,
+    pub distrobox: Distrobox,
+    pub image: ImageCfg,
     pub build: Build,
 }
 
@@ -322,6 +528,106 @@ pub struct DesktopInfo {
     pub packages: Vec<&'static str>,
     pub display_manager: Option<&'static str>,
     pub session: Option<&'static str>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ArchInfo {
+    pub label: &'static str,
+    pub desc: &'static str,
+    /// Architektur für pacman
+    pub pacman: &'static str,
+    /// Architektur für Container und OCI-Images
+    pub oci: &'static str,
+}
+
+pub fn arches() -> Vec<(&'static str, ArchInfo)> {
+    vec![
+        (
+            "x86_64",
+            ArchInfo {
+                label: "x86_64 (PC, Laptop)",
+                desc: "Bootfähige ISO mit Live-System und grafischem Installer",
+                pacman: "x86_64",
+                oci: "amd64",
+            },
+        ),
+        (
+            "aarch64",
+            ArchInfo {
+                label: "ARM64 (UEFI)",
+                desc: "Fertiges Disk-Image für ARM64-Rechner und VMs mit UEFI (Arch Linux ARM)",
+                pacman: "aarch64",
+                oci: "arm64",
+            },
+        ),
+        (
+            "rpi",
+            ArchInfo {
+                label: "Raspberry Pi 4/5 (ARM64)",
+                desc: "SD-Karten-Image für Raspberry Pi 4, 400 und 5 (Arch Linux ARM)",
+                pacman: "aarch64",
+                oci: "arm64",
+            },
+        ),
+    ]
+}
+
+/// Arch Linux ARM: Basissystem pro Plattform
+pub fn alarm_tarball(platform: &str) -> &'static str {
+    match platform {
+        "rpi" => "http://os.archlinuxarm.org/os/ArchLinuxARM-rpi-aarch64-latest.tar.gz",
+        _ => "http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz",
+    }
+}
+
+/// Gewählte Plattform (unbekannte Werte fallen auf x86_64 zurück).
+pub fn arch(cfg: &Config) -> &'static str {
+    arches()
+        .into_iter()
+        .map(|(k, _)| k)
+        .find(|k| *k == cfg.build.arch)
+        .unwrap_or("x86_64")
+}
+
+pub fn arch_info(cfg: &Config) -> ArchInfo {
+    let key = arch(cfg);
+    arches().into_iter().find(|(k, _)| *k == key).unwrap().1
+}
+
+/// ARM-Plattformen werden als fertiges Disk-Image gebaut, x86_64 als ISO.
+pub fn is_image(cfg: &Config) -> bool {
+    arch(cfg) != "x86_64"
+}
+
+pub fn pacman_arch(cfg: &Config) -> &'static str {
+    arch_info(cfg).pacman
+}
+
+pub fn oci_arch(cfg: &Config) -> &'static str {
+    arch_info(cfg).oci
+}
+
+/// Kernel, die es auf der gewählten Plattform gibt.
+pub fn kernels_for(cfg: &Config) -> Vec<(&'static str, &'static str)> {
+    match arch(cfg) {
+        "aarch64" => vec![("linux-aarch64", "Linux (Arch Linux ARM)")],
+        "rpi" => vec![
+            ("linux-rpi", "Raspberry Pi (Pi 4/400/5)"),
+            ("linux-rpi-16k", "Raspberry Pi 5 (16K-Seiten, schneller)"),
+        ],
+        _ => kernels(),
+    }
+}
+
+/// Gewählter Kernel – fällt auf den Standard der Plattform zurück, wenn er dort nicht existiert.
+pub fn kernel(cfg: &Config) -> String {
+    let options = kernels_for(cfg);
+    options
+        .iter()
+        .map(|(k, _)| *k)
+        .find(|k| *k == cfg.packages.kernel)
+        .unwrap_or(options[0].0)
+        .to_string()
 }
 
 pub fn kernels() -> Vec<(&'static str, &'static str)> {
@@ -600,6 +906,15 @@ pub fn gpus() -> Vec<(&'static str, GpuInfo)> {
     ]
 }
 
+/// Grafiktreiber, die es auf der gewählten Plattform gibt (ARM: nur Mesa).
+pub fn gpus_for(cfg: &Config) -> Vec<(&'static str, GpuInfo)> {
+    if is_image(cfg) {
+        gpus().into_iter().filter(|(k, _)| *k == "mesa").collect()
+    } else {
+        gpus()
+    }
+}
+
 fn gpu_info(key: &str) -> GpuInfo {
     gpus()
         .into_iter()
@@ -787,6 +1102,67 @@ pub fn stack_presets() -> Vec<(&'static str, StackPreset)> {
     ]
 }
 
+#[derive(Debug, Clone)]
+pub struct FlatpakPreset {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub x86_only: bool,
+}
+
+pub fn flatpak_presets() -> Vec<FlatpakPreset> {
+    [
+        (
+            "com.github.tchx84.Flatseal",
+            "Flatseal – Flatpak-Berechtigungen verwalten",
+            false,
+        ),
+        ("org.mozilla.firefox", "Firefox", false),
+        ("org.libreoffice.LibreOffice", "LibreOffice", false),
+        ("org.gimp.GIMP", "GIMP", false),
+        ("org.videolan.VLC", "VLC", false),
+        ("org.kde.kdenlive", "Kdenlive – Videoschnitt", false),
+        ("com.obsproject.Studio", "OBS Studio", false),
+        ("org.signal.Signal", "Signal", false),
+        ("com.spotify.Client", "Spotify", true),
+        ("com.discordapp.Discord", "Discord", true),
+        ("com.valvesoftware.Steam", "Steam", true),
+        ("com.visualstudio.code", "Visual Studio Code", false),
+    ]
+    .into_iter()
+    .map(|(id, label, x86_only)| FlatpakPreset {
+        id,
+        label,
+        x86_only,
+    })
+    .collect()
+}
+
+pub const FLATHUB_URL: &str = "https://dl.flathub.org/repo/flathub.flatpakrepo";
+
+/// key: (Label, Image)
+pub fn distrobox_presets() -> Vec<(&'static str, &'static str, &'static str)> {
+    vec![
+        ("ubuntu", "Ubuntu 24.04", "docker.io/library/ubuntu:24.04"),
+        ("debian", "Debian 12", "docker.io/library/debian:12"),
+        (
+            "fedora",
+            "Fedora 42",
+            "registry.fedoraproject.org/fedora-toolbox:42",
+        ),
+        (
+            "opensuse",
+            "openSUSE Tumbleweed",
+            "registry.opensuse.org/opensuse/distrobox:latest",
+        ),
+        ("alpine", "Alpine Linux", "docker.io/library/alpine:latest"),
+        (
+            "arch",
+            "Arch Linux (nur x86_64)",
+            "docker.io/library/archlinux:latest",
+        ),
+    ]
+}
+
 pub fn siglevels() -> Vec<&'static str> {
     vec!["Optional TrustAll", "Optional", "Required", "Never"]
 }
@@ -876,12 +1252,75 @@ fn id_re() -> Regex {
 fn pkg_re() -> Regex {
     Regex::new(r"^[a-zA-Z0-9@._+-]+$").unwrap()
 }
+pub fn user_re() -> Regex {
+    Regex::new(r"^[a-z_][a-z0-9_-]{0,31}$").unwrap()
+}
+pub fn flatpak_app_re() -> Regex {
+    Regex::new(r"^[A-Za-z_][\w-]*(\.[A-Za-z0-9_-]+)+$").unwrap()
+}
+pub fn remote_re() -> Regex {
+    Regex::new(r"^[A-Za-z0-9_-]+$").unwrap()
+}
+pub fn box_re() -> Regex {
+    Regex::new(r"^[a-z0-9][a-z0-9_.-]{0,40}$").unwrap()
+}
+pub fn image_name_valid(name: &str) -> bool {
+    image_re().is_match(name)
+}
 pub fn model_name_valid(name: &str) -> bool {
     model_re().is_match(name)
 }
 
 pub fn needs_chafa(cfg: &Config) -> bool {
     matches!(cfg.branding.logo_mode.as_str(), "image" | "chafa") && !cfg.branding.logo.is_empty()
+}
+
+/// [(Quelle, App-ID)] – "quelle:app.id" oder nur "app.id" (Flathub).
+pub fn flatpak_apps(cfg: &Config) -> Vec<(String, String)> {
+    if !cfg.flatpak.enabled {
+        return Vec::new();
+    }
+    cfg.flatpak
+        .apps
+        .iter()
+        .map(|entry| match entry.rsplit_once(':') {
+            Some((remote, app)) if !remote.is_empty() => (remote.to_string(), app.to_string()),
+            Some((_, app)) => ("flathub".to_string(), app.to_string()),
+            None => ("flathub".to_string(), entry.clone()),
+        })
+        .collect()
+}
+
+/// [(Name, URL der .flatpakrepo-Datei)]
+pub fn flatpak_remotes(cfg: &Config) -> Vec<(String, String)> {
+    let f = &cfg.flatpak;
+    if !f.enabled {
+        return Vec::new();
+    }
+    let mut remotes = Vec::new();
+    if f.flathub {
+        remotes.push(("flathub".to_string(), FLATHUB_URL.to_string()));
+    }
+    remotes.extend(f.remotes.iter().map(|r| (r.name.clone(), r.url.clone())));
+    remotes
+}
+
+pub fn distrobox_active(cfg: &Config) -> bool {
+    cfg.distrobox.enabled
+}
+
+/// App-Store passend zum Desktop, der Flatpaks anzeigt und aktualisiert.
+pub fn flatpak_store(cfg: &Config) -> Vec<&'static str> {
+    match cfg.packages.desktop.as_str() {
+        "none" => vec![],
+        "kde" | "lxqt" => vec!["discover"],
+        _ => vec!["gnome-software"],
+    }
+}
+
+/// Paket- bzw. App-Liste, die in einem Wort/Komma-Feld steht.
+pub fn split_list(s: &str) -> Vec<String> {
+    split_ws_comma(s)
 }
 
 fn dedup(items: Vec<String>) -> Vec<String> {
@@ -902,13 +1341,18 @@ fn to_strings(v: Vec<&str>) -> Vec<String> {
 /// Pakete, die der Installer auf dem Zielsystem installiert.
 pub fn target_packages(cfg: &Config) -> Vec<String> {
     let p = &cfg.packages;
-    let mut pkgs: Vec<String> = to_strings(vec![
-        "base",
-        "linux-firmware",
-        "amd-ucode",
-        "intel-ucode",
-        "grub",
-        "efibootmgr",
+    let kern = kernel(cfg);
+    let mut pkgs: Vec<String> = vec!["base".into(), kern.clone(), "linux-firmware".into()];
+    pkgs.extend(to_strings(match arch(cfg) {
+        "x86_64" => vec!["amd-ucode", "intel-ucode", "grub", "efibootmgr"],
+        "aarch64" => vec!["archlinuxarm-keyring", "grub", "efibootmgr"],
+        _ => vec![
+            "archlinuxarm-keyring",
+            "raspberrypi-bootloader",
+            "firmware-raspberrypi",
+        ],
+    }));
+    pkgs.extend(to_strings(vec![
         "dosfstools",
         "networkmanager",
         "sudo",
@@ -916,8 +1360,7 @@ pub fn target_packages(cfg: &Config) -> Vec<String> {
         "vim",
         "bash-completion",
         "fastfetch",
-    ]);
-    pkgs.insert(1, p.kernel.clone());
+    ]));
     if needs_chafa(cfg) {
         pkgs.push("chafa".into());
     }
@@ -925,19 +1368,31 @@ pub fn target_packages(cfg: &Config) -> Vec<String> {
         pkgs.push("zram-generator".into());
     }
     pkgs.extend(desktop_info(cfg).packages.iter().map(|s| s.to_string()));
-    let gpu = if p.gpu.is_empty() {
+    let gpu = if p.gpu.is_empty() || !gpus_for(cfg).iter().any(|(k, _)| *k == p.gpu) {
         "mesa"
     } else {
         p.gpu.as_str()
     };
     pkgs.extend(gpu_info(gpu).packages.iter().map(|s| s.to_string()));
     if gpu == "nvidia" {
-        pkgs.push(format!("{}-headers", p.kernel));
+        pkgs.push(format!("{kern}-headers"));
     }
     let eng = &cfg.containers.engine;
     pkgs.extend(engine_info(eng).packages.iter().map(|s| s.to_string()));
     if eng != "none" && gpu == "nvidia" {
         pkgs.push("nvidia-container-toolkit".into());
+    }
+    if distrobox_active(cfg) {
+        pkgs.push("distrobox".into());
+        if eng == "none" {
+            pkgs.push("podman".into());
+        }
+    }
+    if cfg.flatpak.enabled {
+        pkgs.push("flatpak".into());
+        if cfg.flatpak.store {
+            pkgs.extend(to_strings(flatpak_store(cfg)));
+        }
     }
     let ai = &cfg.ai;
     if ai.ollama {
@@ -994,10 +1449,20 @@ pub fn target_services(cfg: &Config) -> Vec<String> {
             .iter()
             .map(|s| s.to_string()),
     );
+    if distrobox_active(cfg) && cfg.containers.engine == "none" {
+        services.push("podman.socket".into());
+    }
     if cfg.ai.ollama {
         services.push("ollama.service".into());
     }
     dedup(services)
+}
+
+/// Pakete für das fertige ARM-Image (zusätzlich zum Arch-Linux-ARM-Basissystem).
+pub fn image_packages(cfg: &Config) -> Vec<String> {
+    let mut pkgs = target_packages(cfg);
+    pkgs.extend(to_strings(vec!["e2fsprogs", "util-linux"]));
+    dedup(pkgs)
 }
 
 /// Alle Images, die vorab in die ISO geladen werden sollen (Liste + aus Compose-Stacks).
@@ -1043,8 +1508,13 @@ pub fn live_packages(cfg: &Config, releng_packages: &[String]) -> Vec<String> {
     dedup(base)
 }
 
+/// ISO ohne Installer: Das Live-System ist das fertige Produkt.
+pub fn live_only(cfg: &Config) -> bool {
+    !is_image(cfg) && !cfg.installer.enabled
+}
+
 pub fn installer_active(cfg: &Config) -> bool {
-    cfg.installer.enabled && cfg.packages.desktop != "none"
+    !is_image(cfg) && cfg.installer.enabled && cfg.packages.desktop != "none"
 }
 
 /// Gibt (Fehler, Warnungen) zurück.
@@ -1131,7 +1601,7 @@ pub fn validate(cfg: &Config) -> (Vec<String>, Vec<String>) {
         warnings
             .push("CUDA/ROCm sind mehrere GB groß – die ISO wird entsprechend größer.".to_string());
     }
-    if cfg.installer.enabled && cfg.packages.desktop == "none" {
+    if !is_image(cfg) && cfg.installer.enabled && cfg.packages.desktop == "none" {
         warnings.push(
             "Der grafische Installer benötigt einen Desktop – ohne Desktop wird archinstall genutzt.".to_string(),
         );
@@ -1139,7 +1609,282 @@ pub fn validate(cfg: &Config) -> (Vec<String>, Vec<String>) {
     if cfg.repos.core_testing || cfg.repos.extra_testing {
         warnings.push("Testing-Repositories können instabil sein.".to_string());
     }
+    validate_live(cfg, &mut errors, &mut warnings);
+    validate_mirror(cfg, &mut errors, &mut warnings);
+    validate_arch(cfg, &mut errors, &mut warnings);
+    validate_flatpak(cfg, &mut errors, &mut warnings);
+    validate_distrobox(cfg, &mut errors, &mut warnings);
     (errors, warnings)
+}
+
+fn validate_live(cfg: &Config, errors: &mut Vec<String>, warnings: &mut Vec<String>) {
+    if is_image(cfg) {
+        return;
+    }
+    let l = &cfg.live;
+    if !user_re().is_match(&l.username) || l.username == "root" {
+        errors.push("Ungültiger Live-Benutzername (a-z, 0-9, _ und -, nicht root).".to_string());
+    }
+    if !sudo_modes().iter().any(|(k, _)| *k == l.sudo) {
+        errors.push(format!("Unbekannte sudo-Einstellung: {}", l.sudo));
+    }
+    if !l.password_hash.is_empty() && !crate::passwd::looks_like_hash(&l.password_hash) {
+        errors.push(
+            "Das Live-Passwort ist kein gültiger Hash – bitte in der Oberfläche neu setzen."
+                .to_string(),
+        );
+    }
+    if installer_active(cfg) && l.sudo != "nopasswd" {
+        errors.push(
+            "Der grafische Installer braucht „sudo ohne Passwort“ für den Live-Benutzer – oder „Nur Live-System“ wählen."
+                .to_string(),
+        );
+    }
+    if l.sudo == "password" && l.password_hash.is_empty() {
+        errors.push("„sudo mit Passwort“ braucht ein Live-Passwort.".to_string());
+    }
+    if live_only(cfg)
+        && ((cfg.containers.engine != "none"
+            && (!cfg.containers.stacks.is_empty() || !container_images(cfg).is_empty()))
+            || (distrobox_active(cfg) && !cfg.distrobox.boxes.is_empty()))
+    {
+        warnings.push(
+            "Container-Apps, vorgeladene Images und Distrobox-Container werden erst nach einer Installation eingerichtet – im reinen Live-System stehen nur Docker/Podman selbst bereit."
+                .to_string(),
+        );
+    }
+    if !l.autologin && l.password_hash.is_empty() {
+        warnings.push(
+            "Ohne automatische Anmeldung und ohne Passwort meldet man sich mit dem Benutzernamen ohne Passwort an."
+                .to_string(),
+        );
+    }
+}
+
+fn validate_mirror(cfg: &Config, errors: &mut Vec<String>, warnings: &mut Vec<String>) {
+    let m = &cfg.mirror_server;
+    if !m.enabled {
+        return;
+    }
+    let url_re = Regex::new(r"^https?://[^\s/]+(/\S*)?$").unwrap();
+    if !url_re.is_match(m.url.trim()) {
+        errors.push(
+            "Der Spiegelserver braucht eine Adresse wie http://192.168.1.10:8080.".to_string(),
+        );
+    }
+    if !mirror_modes().iter().any(|(k, _)| *k == m.mode) {
+        errors.push(format!("Unbekannte Spiegel-Art: {}", m.mode));
+    }
+    if m.mode == "full" && is_image(cfg) {
+        errors.push(
+            "Ein vollständiger rsync-Spiegel geht nur für x86_64 – für ARM den Caching-Proxy wählen."
+                .to_string(),
+        );
+    }
+    if m.mode == "full" && !m.rsync_upstream.trim().starts_with("rsync://") {
+        errors.push("Die rsync-Quelle muss mit rsync:// beginnen.".to_string());
+    }
+    if m.port == 0 {
+        errors.push("Ungültiger Port für den Spiegelserver.".to_string());
+    }
+    if m.own_repo && !crate::mirror::own_repo_db(cfg).exists() {
+        errors.push(
+            "Das eigene Paket-Repository ist leer – bitte mindestens ein Paket hinzufügen oder es abschalten."
+                .to_string(),
+        );
+    }
+    if !m.fallback {
+        warnings.push(
+            "Ohne Ausweichquelle braucht jeder Build und jedes Update den eigenen Spiegelserver."
+                .to_string(),
+        );
+    }
+    let host = m.url.trim();
+    if host.contains("://localhost") || host.contains("://127.") {
+        warnings.push(
+            "Der Spiegel zeigt auf localhost – installierte Systeme erreichen ihn so nicht. Besser die LAN-Adresse dieses Rechners eintragen."
+                .to_string(),
+        );
+    }
+}
+
+fn validate_arch(cfg: &Config, errors: &mut Vec<String>, warnings: &mut Vec<String>) {
+    let plat = cfg.build.arch.as_str();
+    if !arches().iter().any(|(k, _)| *k == plat) {
+        errors.push(format!("Unbekannte Architektur: {plat}"));
+        return;
+    }
+    if !is_image(cfg) {
+        return;
+    }
+    let label = arch_info(cfg).label;
+    let gpu = if cfg.packages.gpu.is_empty() {
+        "mesa"
+    } else {
+        cfg.packages.gpu.as_str()
+    };
+    if gpu != "mesa" {
+        errors.push(format!(
+            "Der Grafiktreiber '{gpu}' ist für {label} nicht verfügbar – bitte Mesa wählen."
+        ));
+    }
+    if matches!(cfg.ai.accel.as_str(), "cuda" | "rocm") && (cfg.ai.ollama || cfg.ai.dev) {
+        errors.push(format!(
+            "CUDA/ROCm gibt es für {label} nicht – bitte CPU oder Vulkan wählen."
+        ));
+    }
+    if cfg.repos.multilib {
+        errors.push("Das multilib-Repository gibt es nur für x86_64.".to_string());
+    }
+    if cfg.packages.presets.iter().any(|p| p == "gaming") {
+        errors.push(format!("Steam ist für {label} nicht verfügbar."));
+    }
+    if cfg.repos.core_testing || cfg.repos.extra_testing {
+        warnings.push(
+            "Arch Linux ARM hat keine Testing-Repositories – die Einstellung wird ignoriert."
+                .to_string(),
+        );
+    }
+    let kern = kernel(cfg);
+    if cfg.packages.kernel != kern {
+        warnings.push(format!(
+            "Kernel '{}' gibt es für {label} nicht – es wird {kern} verwendet.",
+            cfg.packages.kernel
+        ));
+    }
+    let img = &cfg.image;
+    if !user_re().is_match(&img.username) || img.username == "root" {
+        errors.push("Ungültiger Benutzername für das Image (a-z, 0-9, _ und -).".to_string());
+    }
+    if img.password.is_empty() {
+        errors.push("Das Image braucht ein Startpasswort für den Benutzer.".to_string());
+    }
+    if img.autologin && img.expire_password && cfg.packages.desktop != "none" {
+        warnings.push(
+            "Mit automatischer Anmeldung muss das Startpasswort nicht geändert werden – bitte selbst ändern."
+                .to_string(),
+        );
+    }
+    if img.size_gb < 3 {
+        errors.push("Das Image muss mindestens 3 GB groß sein.".to_string());
+    }
+    let known: std::collections::HashMap<&str, f64> = model_presets()
+        .into_iter()
+        .map(|m| (m.name, m.size_gb))
+        .collect();
+    let mut need = 3.0;
+    if cfg.ai.ollama {
+        need += cfg
+            .ai
+            .models
+            .iter()
+            .map(|m| known.get(m.as_str()).copied().unwrap_or(0.0))
+            .sum::<f64>();
+    }
+    if cfg.packages.desktop != "none" {
+        need += 3.0;
+    }
+    if need > img.size_gb as f64 {
+        warnings.push(format!(
+            "Das Image ist mit {} GB vermutlich zu klein (geschätzt mind. {need:.0} GB).",
+            img.size_gb
+        ));
+    }
+    warnings.push(format!(
+        "{label}: Es entsteht ein fertig installiertes Image (Arch Linux ARM). Nicht jedes Paket aus Arch Linux gibt es auch für ARM."
+    ));
+}
+
+fn validate_flatpak(cfg: &Config, errors: &mut Vec<String>, warnings: &mut Vec<String>) {
+    let f = &cfg.flatpak;
+    if !f.enabled {
+        if !f.apps.is_empty() {
+            warnings
+                .push("Flatpak-Apps sind ausgewählt, aber Flatpak ist deaktiviert.".to_string());
+        }
+        return;
+    }
+    let remotes = flatpak_remotes(cfg);
+    let url_re = Regex::new(r"^https?://\S+$").unwrap();
+    for (name, url) in &remotes {
+        if !remote_re().is_match(name) || !url_re.is_match(url) {
+            errors.push(format!(
+                "Flatpak-Quelle '{name}' braucht einen gültigen Namen und eine URL."
+            ));
+        }
+    }
+    let names: Vec<&str> = remotes.iter().map(|(n, _)| n.as_str()).collect();
+    let unique: std::collections::HashSet<&&str> = names.iter().collect();
+    if unique.len() != names.len() {
+        errors.push("Flatpak-Quellen müssen eindeutige Namen haben.".to_string());
+    }
+    let x86_only: std::collections::HashSet<&str> = flatpak_presets()
+        .into_iter()
+        .filter(|p| p.x86_only)
+        .map(|p| p.id)
+        .collect();
+    for (remote, app) in flatpak_apps(cfg) {
+        if !flatpak_app_re().is_match(&app) {
+            errors.push(format!("Ungültige Flatpak-App-ID: {app}"));
+        } else if !names.contains(&remote.as_str()) {
+            errors.push(format!(
+                "Flatpak-App {app}: Quelle '{remote}' ist nicht eingerichtet."
+            ));
+        } else if is_image(cfg) && x86_only.contains(app.as_str()) {
+            errors.push(format!("Die Flatpak-App {app} gibt es nur für x86_64."));
+        }
+    }
+    if f.store && cfg.packages.desktop == "none" {
+        warnings.push("Ein App-Store für Flatpaks braucht einen Desktop.".to_string());
+    }
+}
+
+fn validate_distrobox(cfg: &Config, errors: &mut Vec<String>, warnings: &mut Vec<String>) {
+    if !distrobox_active(cfg) {
+        return;
+    }
+    let boxes = &cfg.distrobox.boxes;
+    for b in boxes {
+        if !box_re().is_match(&b.name) {
+            errors.push(format!(
+                "Ungültiger Distrobox-Name '{}' (a-z, 0-9, _ . -)",
+                b.name
+            ));
+        }
+        if !image_re().is_match(&b.image) {
+            errors.push(format!(
+                "Ungültiges Image für Distrobox '{}': {}",
+                b.name, b.image
+            ));
+        }
+        for pkg in split_ws_comma(&b.packages) {
+            if !pkg_re().is_match(&pkg) {
+                errors.push(format!(
+                    "Distrobox '{}': ungültiger Paketname {pkg}",
+                    b.name
+                ));
+            }
+        }
+        for app in split_ws_comma(&b.export) {
+            if !pkg_re().is_match(&app) {
+                errors.push(format!("Distrobox '{}': ungültiger App-Name {app}", b.name));
+            }
+        }
+        if is_image(cfg) && b.image.contains("archlinux") {
+            errors.push(format!(
+                "Distrobox '{}': das Arch-Linux-Image gibt es nur für x86_64.",
+                b.name
+            ));
+        }
+    }
+    let names: Vec<&str> = boxes.iter().map(|b| b.name.as_str()).collect();
+    let unique: std::collections::HashSet<&&str> = names.iter().collect();
+    if unique.len() != names.len() {
+        errors.push("Distrobox-Namen müssen eindeutig sein.".to_string());
+    }
+    if boxes.is_empty() {
+        warnings.push("Distrobox ist aktiv, aber es sind keine Container angelegt.".to_string());
+    }
 }
 
 /// Prüft Pakete gegen die lokale pacman-Datenbank. Gibt unbekannte zurück.
@@ -1296,6 +2041,166 @@ mod tests {
                 "ghcr.io/open-webui/open-webui:main".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn arm_packages() {
+        let mut cfg = default_config();
+        cfg.build.arch = "rpi".into();
+        let pkgs = target_packages(&cfg);
+        assert!(pkgs.contains(&"linux-rpi".to_string()));
+        assert!(pkgs.contains(&"raspberrypi-bootloader".to_string()));
+        for p in ["linux", "intel-ucode", "amd-ucode", "grub"] {
+            assert!(!pkgs.contains(&p.to_string()), "{p} on rpi");
+        }
+        cfg.build.arch = "aarch64".into();
+        let pkgs = target_packages(&cfg);
+        assert!(pkgs.contains(&"linux-aarch64".to_string()));
+        assert!(pkgs.contains(&"grub".to_string()));
+        assert_eq!(oci_arch(&cfg), "arm64");
+        assert!(!installer_active(&cfg));
+    }
+
+    #[test]
+    fn kernel_choice() {
+        let mut cfg = default_config();
+        cfg.build.arch = "rpi".into();
+        cfg.packages.kernel = "linux-rpi-16k".into();
+        assert_eq!(kernel(&cfg), "linux-rpi-16k");
+        cfg.build.arch = "x86_64".into();
+        assert_eq!(kernel(&cfg), "linux");
+    }
+
+    #[test]
+    fn arm_validation() {
+        let mut cfg = default_config();
+        cfg.build.arch = "aarch64".into();
+        cfg.packages.kernel = "linux-aarch64".into();
+        assert!(validate(&cfg).0.is_empty(), "{:?}", validate(&cfg).0);
+        cfg.packages.gpu = "nvidia".into();
+        cfg.repos.multilib = true;
+        cfg.ai.ollama = true;
+        cfg.ai.accel = "cuda".into();
+        cfg.image.password.clear();
+        let errors = validate(&cfg).0;
+        for word in ["Grafiktreiber", "multilib", "CUDA", "Startpasswort"] {
+            assert!(errors.iter().any(|e| e.contains(word)), "{word}");
+        }
+        cfg.build.arch = "sparc".into();
+        assert!(validate(&cfg).0.iter().any(|e| e.contains("Architektur")));
+    }
+
+    #[test]
+    fn flatpak() {
+        let mut cfg = default_config();
+        cfg.flatpak.enabled = true;
+        cfg.flatpak.apps = vec!["org.mozilla.firefox".into(), "kde:org.kde.kate".into()];
+        assert_eq!(
+            flatpak_apps(&cfg),
+            vec![
+                ("flathub".to_string(), "org.mozilla.firefox".to_string()),
+                ("kde".to_string(), "org.kde.kate".to_string())
+            ]
+        );
+        assert!(validate(&cfg).0.iter().any(|e| e.contains("kde")));
+        cfg.flatpak.remotes = vec![FlatpakRemote {
+            name: "kde".into(),
+            url: "https://distribute.kde.org/kdeapps.flatpakrepo".into(),
+        }];
+        assert!(validate(&cfg).0.is_empty(), "{:?}", validate(&cfg).0);
+        let pkgs = target_packages(&cfg);
+        assert!(pkgs.contains(&"flatpak".to_string()));
+        assert!(pkgs.contains(&"discover".to_string()));
+        cfg.flatpak.apps.push("kein app".into());
+        assert!(validate(&cfg).0.iter().any(|e| e.contains("kein app")));
+    }
+
+    #[test]
+    fn flatpak_x86_only_on_arm() {
+        let mut cfg = default_config();
+        cfg.build.arch = "rpi".into();
+        cfg.packages.kernel = "linux-rpi".into();
+        cfg.flatpak.enabled = true;
+        cfg.flatpak.apps = vec!["com.valvesoftware.Steam".into()];
+        assert!(validate(&cfg).0.iter().any(|e| e.contains("x86_64")));
+    }
+
+    #[test]
+    fn distrobox() {
+        let mut cfg = default_config();
+        cfg.distrobox.enabled = true;
+        cfg.distrobox.boxes = vec![DistroboxBox {
+            name: "ubuntu".into(),
+            image: "docker.io/library/ubuntu:24.04".into(),
+            packages: "git".into(),
+            export: String::new(),
+        }];
+        assert!(validate(&cfg).0.is_empty(), "{:?}", validate(&cfg).0);
+        let pkgs = target_packages(&cfg);
+        assert!(pkgs.contains(&"distrobox".to_string()));
+        assert!(pkgs.contains(&"podman".to_string()));
+        assert!(target_services(&cfg).contains(&"podman.socket".to_string()));
+        let dup = cfg.distrobox.boxes[0].clone();
+        cfg.distrobox.boxes.push(dup);
+        assert!(validate(&cfg).0.iter().any(|e| e.contains("eindeutig")));
+    }
+
+    #[test]
+    fn live_validation() {
+        let mut cfg = default_config();
+        cfg.live.username = "root".into();
+        assert!(validate(&cfg)
+            .0
+            .iter()
+            .any(|e| e.contains("Live-Benutzername")));
+        cfg.live.username = "gast".into();
+        cfg.live.sudo = "password".into();
+        let errors = validate(&cfg).0;
+        assert!(errors.iter().any(|e| e.contains("Installer")));
+        assert!(errors.iter().any(|e| e.contains("Live-Passwort")));
+        // Nur Live-System: sudo mit Passwort ist erlaubt, sobald ein Passwort gesetzt ist
+        cfg.installer.enabled = false;
+        cfg.live.password_hash = crate::passwd::hash_password("geheim");
+        assert!(validate(&cfg).0.is_empty(), "{:?}", validate(&cfg).0);
+        cfg.live.password_hash = "klartext".into();
+        assert!(validate(&cfg).0.iter().any(|e| e.contains("Hash")));
+    }
+
+    #[test]
+    fn mirror_validation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = default_config();
+        cfg.build.project_dir = tmp.path().to_string_lossy().into_owned();
+        cfg.mirror_server.enabled = true;
+        assert!(validate(&cfg).0.iter().any(|e| e.contains("Adresse")));
+        cfg.mirror_server.url = "http://192.168.1.10:8080".into();
+        assert!(validate(&cfg).0.is_empty(), "{:?}", validate(&cfg).0);
+        cfg.mirror_server.own_repo = true;
+        assert!(validate(&cfg)
+            .0
+            .iter()
+            .any(|e| e.contains("Paket-Repository")));
+        cfg.mirror_server.own_repo = false;
+        cfg.mirror_server.mode = "full".into();
+        cfg.build.arch = "rpi".into();
+        cfg.packages.kernel = "linux-rpi".into();
+        assert!(validate(&cfg).0.iter().any(|e| e.contains("rsync")));
+        cfg.mirror_server.url = "http://localhost:8080".into();
+        assert!(validate(&cfg).1.iter().any(|w| w.contains("localhost")));
+    }
+
+    #[test]
+    fn python_project_files_still_load() {
+        // Projekte aus der Python-Version (gleiche JSON-Schlüssel) laden weiterhin
+        let json = r#"{"general": {"name": "Alt", "id": "alt"}, "build": {"arch": "rpi"},
+            "flatpak": {"enabled": true, "apps": ["org.gimp.GIMP"]},
+            "image": {"username": "pi", "size_gb": 16}}"#;
+        let cfg: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(cfg.build.arch, "rpi");
+        assert_eq!(cfg.image.username, "pi");
+        assert_eq!(cfg.image.password, "user");
+        assert!(cfg.flatpak.flathub);
+        assert_eq!(cfg.packages.desktop, "kde");
     }
 
     #[test]

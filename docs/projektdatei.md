@@ -31,13 +31,13 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
 | `repos.extra_testing` | `false` |  |
 | `repos.mirror` | `""` | eigener `Server =`-Eintrag statt Mirrorliste |
 | `repos.custom` | `[]` | Liste von `{name, server, siglevel, first}` |
-| `packages.kernel` | `"linux"` | `linux` · `linux-lts` · `linux-zen` · `linux-hardened` |
+| `packages.kernel` | `"linux"` | `linux` · `linux-lts` · `linux-zen` · `linux-hardened`; ARM: `linux-aarch64`, Raspberry Pi: `linux-rpi` · `linux-rpi-16k` |
 | `packages.desktop` | `"kde"` | `none` · `kde` · `gnome` · `xfce` · `cinnamon` · `lxqt` |
 | `packages.presets` | `["audio", "firefox", "fonts", "utils"]` | Sammlungen: `audio`, `bluetooth`, `printing`, `firefox`, `chromium`, `office`, `media`, `fonts`, `flatpak`, `dev`, `utils`, `gaming` |
 | `packages.custom` | `""` | eigene Pakete, durch Leerzeichen/Zeilen getrennt |
 | `packages.rescue_tools` | `true` | releng-Paketliste statt Minimalliste im Live-System |
 | `packages.gpu` | `"mesa"` | `mesa` · `amd` · `intel` · `nvidia` |
-| `installer.enabled` | `true` | Installer einbinden (braucht Desktop) |
+| `installer.enabled` | `true` | `true` = Live-System mit Installer (braucht Desktop), `false` = nur Live-System |
 | `installer.autostart` | `true` | Installer im Live-System automatisch öffnen |
 | `installer.locale` | `"de_DE.UTF-8"` | Vorgabe |
 | `installer.timezone` | `"Europe/Berlin"` | Vorgabe |
@@ -59,8 +59,35 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
 | `ai.models` | `[]` | Modellnamen, z. B. `llama3.2:3b` |
 | `ai.expose` | `false` | `OLLAMA_HOST=0.0.0.0` |
 | `ai.dev` | `false` | PyTorch, Jupyter & Co. |
+| `live.username` | `"live"` | Benutzer des Live-Systems |
+| `live.password_hash` | `""` | SHA-512-crypt-Hash (`$6$…`), leer = ohne Passwort; nie Klartext |
+| `live.autologin` | `true` | Desktop/Konsole ohne Anmeldemaske |
+| `live.sudo` | `"nopasswd"` | `nopasswd` · `password` · `none`; mit Installer immer `nopasswd` |
+| `live.copytoram` | `false` | Bootparameter `copytoram` |
+| `mirror_server.enabled` | `false` | Distro nutzt den eigenen Spiegel |
+| `mirror_server.mode` | `"proxy"` | `proxy` (Caching-Proxy) · `full` (rsync, nur x86_64) |
+| `mirror_server.url` | `""` | Adresse des Spiegels, z. B. `http://192.168.1.10:8080` |
+| `mirror_server.port` | `8080` | Port des eingebauten Servers |
+| `mirror_server.upstream` | `""` | Quelle des Proxys im pacman-Format, leer = Standard der Plattform |
+| `mirror_server.rsync_upstream` | `"rsync://ftp.halifax.rwth-aachen.de/archlinux/"` | Quelle des vollständigen Spiegels |
+| `mirror_server.fallback` | `true` | offizielle Mirrors als Ausweich eintragen |
+| `mirror_server.own_repo` | `false` | eigenes Paket-Repository `[<id>]` ausliefern |
+| `flatpak.enabled` | `false` | Flatpak einrichten |
+| `flatpak.flathub` | `true` | Flathub als Quelle |
+| `flatpak.store` | `true` | Discover bzw. GNOME Software installieren |
+| `flatpak.preload` | `true` | Apps beim Bauen herunterladen und mitliefern |
+| `flatpak.remotes` | `[]` | eigene Quellen: Liste von `{name, url}` (URL einer `.flatpakrepo`-Datei) |
+| `flatpak.apps` | `[]` | App-IDs, z. B. `org.gimp.GIMP` oder `quelle:app.id` |
+| `distrobox.enabled` | `false` | Distrobox installieren |
+| `distrobox.boxes` | `[]` | Liste von `{name, image, packages, export}` |
+| `image.username` | `"user"` | nur ARM: Benutzer im fertigen Image |
+| `image.password` | `"user"` | nur ARM: Startpasswort |
+| `image.expire_password` | `true` | nur ARM: Passwort beim ersten Anmelden ändern |
+| `image.autologin` | `false` | nur ARM: automatisch anmelden |
+| `image.size_gb` | `8` | nur ARM: Größe der Image-Datei |
+| `build.arch` | `"x86_64"` | `x86_64` (ISO) · `aarch64` (ARM64-Image) · `rpi` (Raspberry-Pi-Image) |
 | `build.project_dir` | `"~/DistroBuilder"` | Basisordner, Projekt liegt in `<project_dir>/<id>` |
-| `build.compression` | `"zstd"` | `zstd` (schnell) · `xz` (klein) |
+| `build.compression` | `"zstd"` | `zstd` (schnell) · `xz` (klein); gilt für SquashFS bzw. das ARM-Image |
 
 ## Beispiel
 
@@ -129,6 +156,23 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
     "swap_gb": 0,
     "welcome": "Dieser Assistent installiert das System auf deine Festplatte."
   },
+  "mirror_server": {
+    "enabled": false,
+    "mode": "proxy",
+    "url": "http://192.168.1.10:8080",
+    "port": 8080,
+    "upstream": "",
+    "rsync_upstream": "rsync://ftp.halifax.rwth-aachen.de/archlinux/",
+    "fallback": true,
+    "own_repo": false
+  },
+  "live": {
+    "username": "live",
+    "password_hash": "",
+    "autologin": true,
+    "sudo": "nopasswd",
+    "copytoram": false
+  },
   "containers": {
     "engine": "docker",
     "preload": true,
@@ -166,7 +210,7 @@ use distro_builder_core::{config, fetch, profile};
 
 let cfg = config::load(std::path::Path::new("nebulaos.json"))?;
 let bins = profile::locate_installer_binaries();
-let pth = profile::generate(&cfg, |l| println!("{l}"), std::path::Path::new(profile::RELENG), bins.as_ref())?;
+let pth = profile::generate(&cfg, |l| println!("{l}"), std::path::Path::new(profile::RELENG), bins.as_ref())?; // ISO-Profil oder ARM-Image
 fetch::prepare_assets(&cfg, &pth, &mut |l: &str| println!("{l}"), None)?; // Modelle und Images
 ```
 

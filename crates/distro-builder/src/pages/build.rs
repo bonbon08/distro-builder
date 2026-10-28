@@ -31,7 +31,54 @@ const BUILD_STAGES: &[(&str, f64, &str)] = &[
     ),
     ("Creating ISO image", 0.92, "ISO-Datei wird geschrieben"),
     ("Done!", 1.0, "Fertig"),
+    // ARM-Image (templates/image-build.sh)
+    (
+        "==> Lade das Arch-Linux-ARM-Basissystem",
+        0.02,
+        "Basissystem wird geladen",
+    ),
+    ("==> Erzeuge Image", 0.04, "Image wird angelegt"),
+    ("==> Lade Flatpak-Apps", 0.05, "Flatpak-Apps werden geladen"),
+    (
+        "==> System wird im Image eingerichtet",
+        0.06,
+        "System wird eingerichtet (Emulation, dauert)",
+    ),
+    (
+        "==> System wird konfiguriert",
+        0.80,
+        "System wird konfiguriert",
+    ),
+    (
+        "==> Bootloader wird eingerichtet",
+        0.86,
+        "Bootloader wird eingerichtet",
+    ),
+    ("==> Komprimiere Image", 0.90, "Image wird komprimiert"),
 ];
+
+const IMAGE_SUFFIXES: &[&str] = &[".iso", ".img", ".img.zst", ".img.xz"];
+const ARM_TOOLS: &[&str] = &[
+    "arch-install-scripts",
+    "qemu-user-static",
+    "qemu-user-static-binfmt",
+];
+
+fn is_build_output(p: &Path) -> bool {
+    let name = p
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_default();
+    IMAGE_SUFFIXES.iter().any(|s| name.ends_with(s))
+}
+
+/// arch-chroot und QEMU-Emulation für aarch64 (oder ein ARM-Rechner).
+fn arm_tools_ready() -> bool {
+    let emulated = std::env::consts::ARCH == "aarch64"
+        || Path::new("/proc/sys/fs/binfmt_misc/qemu-aarch64").exists()
+        || Path::new("/usr/lib/binfmt.d/qemu-aarch64-static.conf").exists();
+    which("arch-chroot") && emulated
+}
 
 pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
@@ -46,7 +93,7 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .build();
     {
         let ctx2 = ctx.clone();
-        archiso_btn.connect_clicked(move |_| install_pkg(&ctx2, "archiso"));
+        archiso_btn.connect_clicked(move |_| install_pkg(&ctx2, &["archiso"]));
     }
     archiso_row.add_suffix(&archiso_btn);
     req.add(&archiso_row);
@@ -64,10 +111,38 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .build();
     {
         let ctx2 = ctx.clone();
-        skopeo_btn.connect_clicked(move |_| install_pkg(&ctx2, "skopeo"));
+        skopeo_btn.connect_clicked(move |_| install_pkg(&ctx2, &["skopeo"]));
     }
     skopeo_row.add_suffix(&skopeo_btn);
     req.add(&skopeo_row);
+    let arm_row = adw::ActionRow::builder()
+        .title("ARM-Image bauen")
+        .subtitle("arch-install-scripts, QEMU-Emulation (qemu-user-static-binfmt)")
+        .build();
+    let arm_btn = gtk::Button::builder()
+        .label("Installieren")
+        .valign(gtk::Align::Center)
+        .build();
+    {
+        let ctx2 = ctx.clone();
+        arm_btn.connect_clicked(move |_| install_pkg(&ctx2, ARM_TOOLS));
+    }
+    arm_row.add_suffix(&arm_btn);
+    req.add(&arm_row);
+    let flatpak_req_row = adw::ActionRow::builder()
+        .title("Flatpak-Apps mitliefern")
+        .build();
+    let flatpak_btn = gtk::Button::builder()
+        .label("flatpak installieren")
+        .valign(gtk::Align::Center)
+        .build();
+    {
+        let ctx2 = ctx.clone();
+        flatpak_btn.connect_clicked(move |_| install_pkg(&ctx2, &["flatpak"]));
+    }
+    flatpak_req_row.add_suffix(&flatpak_btn);
+    req.add(&flatpak_req_row);
+    let is_image = C::is_image(&ctx.cfg.borrow());
 
     let out = adw::PreferencesGroup::builder().title("Ausgabe").build();
     page.add(&out);
@@ -85,7 +160,7 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     out.add(&dir_row);
     let compressions = vec![
         ("zstd".to_string(), "zstd – schneller Build".to_string()),
-        ("xz".to_string(), "xz – kleinere ISO".to_string()),
+        ("xz".to_string(), "xz – kleinere Datei".to_string()),
     ];
     ctx.combo_row(
         &out,
@@ -108,7 +183,7 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .css_classes(["pill"])
         .build();
     let build_btn = gtk::Button::builder()
-        .label("ISO bauen")
+        .label(if is_image { "Image bauen" } else { "ISO bauen" })
         .css_classes(["pill", "suggested-action"])
         .build();
     let cancel_btn = gtk::Button::builder()
@@ -165,7 +240,7 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .build();
     page.add(&result_grp);
     let iso_row = adw::ActionRow::builder()
-        .title("ISO-Datei")
+        .title(if is_image { "Image-Datei" } else { "ISO-Datei" })
         .subtitle_selectable(true)
         .build();
     let open_btn = gtk::Button::builder()
@@ -202,6 +277,10 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         shared.space_row = Some(space_row);
         shared.skopeo_row = Some(skopeo_row);
         shared.skopeo_btn = Some(skopeo_btn);
+        shared.arm_row = Some(arm_row);
+        shared.arm_btn = Some(arm_btn);
+        shared.flatpak_req_row = Some(flatpak_req_row);
+        shared.flatpak_btn = Some(flatpak_btn);
         shared.dir_row = Some(dir_row);
         shared.profile_btn = Some(profile_btn);
         shared.build_btn = Some(build_btn);
@@ -235,6 +314,32 @@ pub fn refresh_build_info(ctx: &Rc<Ctx>) {
     }
     if let Some(btn) = &shared.skopeo_btn {
         btn.set_visible(F::container_tool().is_none());
+    }
+    let is_image = C::is_image(&cfg);
+    archiso_row.set_visible(!is_image);
+    let arm_ok = arm_tools_ready();
+    if let Some(row) = &shared.arm_row {
+        row.set_visible(is_image);
+        row.set_subtitle(if arm_ok {
+            "\u{2714} bereit"
+        } else {
+            "\u{2718} arch-install-scripts und QEMU-Emulation (qemu-user-static-binfmt) fehlen"
+        });
+    }
+    if let Some(btn) = &shared.arm_btn {
+        btn.set_visible(!arm_ok);
+    }
+    let has_flatpak = which("flatpak");
+    if let Some(row) = &shared.flatpak_req_row {
+        row.set_visible(P::flatpak_preload(&cfg));
+        row.set_subtitle(if has_flatpak {
+            "\u{2714} flatpak installiert"
+        } else {
+            "\u{2718} flatpak fehlt – sonst werden die Apps erst beim ersten Start geladen"
+        });
+    }
+    if let Some(btn) = &shared.flatpak_btn {
+        btn.set_visible(!has_flatpak);
     }
     let has_archiso = which("mkarchiso") && Path::new(P::RELENG).is_dir();
     archiso_row.set_subtitle(if has_archiso {
@@ -274,7 +379,7 @@ pub fn refresh_build_info(ctx: &Rc<Ctx>) {
             let mut isos: Vec<PathBuf> = entries
                 .flatten()
                 .map(|e| e.path())
-                .filter(|p| p.extension().map(|e| e == "iso").unwrap_or(false))
+                .filter(|p| is_build_output(p))
                 .collect();
             isos.sort();
             if let Some(last) = isos.pop() {
@@ -339,22 +444,21 @@ fn pick_dir(ctx: &Rc<Ctx>) {
     });
 }
 
-fn install_pkg(ctx: &Rc<Ctx>, pkg: &'static str) {
-    ctx.log(&format!("Installiere {pkg} …"));
+fn install_pkg(ctx: &Rc<Ctx>, pkgs: &'static [&'static str]) {
+    let names = pkgs.join(" ");
+    ctx.log(&format!("Installiere {names} …"));
     let ctx2 = ctx.clone();
+    let mut cmd: Vec<String> = ["pkexec", "pacman", "-S", "--needed", "--noconfirm"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    cmd.extend(pkgs.iter().map(|s| s.to_string()));
     ctx.run_streaming(
-        vec![
-            "pkexec".into(),
-            "pacman".into(),
-            "-S".into(),
-            "--needed".into(),
-            "--noconfirm".into(),
-            pkg.into(),
-        ],
+        cmd,
         |ctx, line| ctx.log(line),
         move |_ctx, rc| {
             let msg = if rc == 0 {
-                format!("{pkg} installiert")
+                format!("{names} installiert")
             } else {
                 "Installation fehlgeschlagen".to_string()
             };
@@ -455,6 +559,45 @@ enum AssetMsg {
     Done(Option<String>),
 }
 
+/// Eigenes Repo bzw. Spiegel ohne Ausweich: Der Spiegel muss beim Build erreichbar sein.
+fn mirror_ready(ctx: &Rc<Ctx>) -> bool {
+    let cfg = ctx.cfg.borrow().clone();
+    if !distro_builder_core::mirror::required_for_build(&cfg)
+        || distro_builder_core::mirror::reachable(&cfg)
+    {
+        return true;
+    }
+    let dlg = adw::AlertDialog::builder()
+        .heading("Spiegelserver nicht erreichbar")
+        .body(format!(
+            "{} antwortet nicht. Das eigene Paket-Repository (bzw. der Spiegel ohne Ausweichquelle) ist nur darüber erreichbar – der Build würde scheitern.\n\nDen eingebauten Spiegelserver jetzt starten?",
+            distro_builder_core::mirror::base_url(&cfg)
+        ))
+        .build();
+    dlg.add_response("cancel", "Abbrechen");
+    dlg.add_response("start", "Starten und bauen");
+    dlg.set_response_appearance("start", adw::ResponseAppearance::Suggested);
+    let ctx2 = ctx.clone();
+    dlg.connect_response(None, move |_, r| {
+        if r != "start" {
+            return;
+        }
+        if ctx2.mirror.borrow().is_none() {
+            crate::pages::mirror::start(&ctx2);
+        }
+        if distro_builder_core::mirror::reachable(&ctx2.cfg.borrow()) {
+            on_build(&ctx2);
+        } else {
+            ctx2.error(
+                "Spiegel weiterhin nicht erreichbar",
+                "Stimmt die Adresse unter „Repositories → Eigener Spiegelserver“ mit diesem Rechner und dem Port überein?",
+            );
+        }
+    });
+    dlg.present(Some(&ctx.window));
+    false
+}
+
 fn on_profile_only(ctx: &Rc<Ctx>) {
     let Some(pth) = prepare(ctx) else { return };
     let script = pth.script.clone();
@@ -471,7 +614,15 @@ fn on_profile_only(ctx: &Rc<Ctx>) {
 }
 
 fn on_build(ctx: &Rc<Ctx>) {
-    if !which("mkarchiso") {
+    if C::is_image(&ctx.cfg.borrow()) {
+        if !arm_tools_ready() {
+            ctx.error(
+                "Werkzeuge fehlen",
+                "Für ARM-Images werden arch-install-scripts und die QEMU-Emulation benötigt (Button „Installieren“ oben).",
+            );
+            return;
+        }
+    } else if !which("mkarchiso") {
         ctx.error(
             "archiso fehlt",
             "Bitte zuerst archiso installieren (Button oben).",
@@ -480,6 +631,9 @@ fn on_build(ctx: &Rc<Ctx>) {
     }
     if let Some(view) = &ctx.shared.borrow().log_view {
         view.buffer().set_text("");
+    }
+    if !mirror_ready(ctx) {
+        return;
     }
     let Some(pth) = prepare(ctx) else { return };
     if let Some(grp) = &ctx.shared.borrow().result_grp {
@@ -590,10 +744,7 @@ fn build_done(ctx: &Rc<Ctx>, rc: i32, started: &std::collections::HashSet<std::f
             .ok()?
             .flatten()
             .map(|e| e.path())
-            .filter(|p| {
-                p.extension().map(|e| e == "iso").unwrap_or(false)
-                    && !started.contains(p.file_name().unwrap())
-            })
+            .filter(|p| is_build_output(p) && !started.contains(p.file_name().unwrap()))
             .collect();
         isos.sort();
         isos.pop()
@@ -603,14 +754,19 @@ fn build_done(ctx: &Rc<Ctx>, rc: i32, started: &std::collections::HashSet<std::f
             status.set_label(s);
         }
     };
+    let kind = if C::is_image(&ctx.cfg.borrow()) {
+        "Image"
+    } else {
+        "ISO"
+    };
     if rc == 0 {
         if let Some(iso) = new_iso {
             if let Some(bar) = &ctx.shared.borrow().build_bar {
                 bar.set_fraction(1.0);
             }
-            shared_status_label(ctx, "ISO erfolgreich gebaut \u{1f389}");
+            shared_status_label(ctx, &format!("{kind} erfolgreich gebaut \u{1f389}"));
             show_result(ctx, &iso);
-            ctx.toast("ISO fertig!");
+            ctx.toast(&format!("{kind} fertig!"));
             return;
         }
     }
@@ -644,7 +800,8 @@ fn show_result(ctx: &Rc<Ctx>, iso: &Path) {
         )));
     }
     if let Some(btn) = &shared.qemu_btn {
-        btn.set_visible(which("run_archiso") && which("qemu-system-x86_64"));
+        let is_iso = iso.extension().map(|e| e == "iso").unwrap_or(false);
+        btn.set_visible(is_iso && which("run_archiso") && which("qemu-system-x86_64"));
     }
     if let Some(grp) = &shared.result_grp {
         grp.set_visible(true);
@@ -653,8 +810,16 @@ fn show_result(ctx: &Rc<Ctx>, iso: &Path) {
 
 fn on_cancel(ctx: &Rc<Ctx>) {
     ctx.log("Abbruch angefordert …");
+    let pattern = if C::is_image(&ctx.cfg.borrow()) {
+        P::paths(&ctx.cfg.borrow())
+            .script
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        "mkarchiso".to_string()
+    };
     let _ = std::process::Command::new("pkexec")
-        .args(["pkill", "-TERM", "-f", "mkarchiso"])
+        .args(["pkill", "-TERM", "-f", &pattern])
         .spawn();
 }
 

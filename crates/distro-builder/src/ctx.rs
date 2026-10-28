@@ -26,8 +26,13 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     ("repos", "Repositories", "network-server-symbolic"),
     ("packages", "Pakete", "package-x-generic-symbolic"),
     ("extras", "Container & KI", "applications-science-symbolic"),
-    ("installer", "Installer", "system-software-install-symbolic"),
-    ("build", "ISO bauen", "media-optical-symbolic"),
+    ("apps", "Flatpak & Distrobox", "view-app-grid-symbolic"),
+    (
+        "installer",
+        "Live & Installer",
+        "system-software-install-symbolic",
+    ),
+    ("build", "Bauen", "media-optical-symbolic"),
 ];
 
 pub const LOGO_MODES: &[(&str, &str)] = &[
@@ -70,11 +75,30 @@ pub struct Shared {
     pub stacks_grp: Option<adw::PreferencesGroup>,
     pub stack_rows: Vec<adw::ActionRow>,
 
+    pub mirror_status: Option<adw::ActionRow>,
+    pub mirror_toggle: Option<gtk::Button>,
+    pub mirror_last: Option<adw::ActionRow>,
+    pub own_pkg_grp: Option<adw::PreferencesGroup>,
+    pub own_pkg_rows: Vec<adw::ActionRow>,
+
+    pub flatpak_row: Option<adw::SwitchRow>,
+    pub flatpak_custom_grp: Option<adw::PreferencesGroup>,
+    pub flatpak_custom_rows: Vec<adw::ActionRow>,
+    pub remotes_grp: Option<adw::PreferencesGroup>,
+    pub remote_rows: Vec<adw::ActionRow>,
+    pub distrobox_row: Option<adw::SwitchRow>,
+    pub boxes_grp: Option<adw::PreferencesGroup>,
+    pub box_rows: Vec<adw::ActionRow>,
+
     pub archiso_row: Option<adw::ActionRow>,
     pub archiso_btn: Option<gtk::Button>,
     pub space_row: Option<adw::ActionRow>,
     pub skopeo_row: Option<adw::ActionRow>,
     pub skopeo_btn: Option<gtk::Button>,
+    pub arm_row: Option<adw::ActionRow>,
+    pub arm_btn: Option<gtk::Button>,
+    pub flatpak_req_row: Option<adw::ActionRow>,
+    pub flatpak_btn: Option<gtk::Button>,
     pub dir_row: Option<adw::ActionRow>,
     pub profile_btn: Option<gtk::Button>,
     pub build_btn: Option<gtk::Button>,
@@ -105,6 +129,8 @@ pub struct Ctx {
     pub shared: RefCell<Shared>,
     pub project_path: RefCell<Option<PathBuf>>,
     pub last_iso: RefCell<Option<PathBuf>>,
+    /// Eingebauter Spiegelserver – überlebt das Neuaufbauen der Seiten
+    pub mirror: RefCell<Option<distro_builder_core::mirror::ServerHandle>>,
 
     pub window: adw::ApplicationWindow,
     pub toasts: adw::ToastOverlay,
@@ -260,6 +286,7 @@ impl Ctx {
             shared: RefCell::new(Shared::default()),
             project_path: RefCell::new(None),
             last_iso: RefCell::new(None),
+            mirror: RefCell::new(None),
             window,
             toasts,
             stack,
@@ -286,6 +313,10 @@ impl Ctx {
             let ctx2 = ctx.clone();
             ctx.window.connect_close_request(move |_| {
                 ctx2.autosave();
+                let server = ctx2.mirror.borrow_mut().take();
+                if let Some(server) = server {
+                    server.stop();
+                }
                 glib::Propagation::Proceed
             });
         }

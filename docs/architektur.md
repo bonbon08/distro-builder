@@ -17,6 +17,9 @@ Distro Builder besteht aus zwei Teilen:
  pkexec bash build.sh ──► mkarchiso ──► out/<id>-<version>-<datum>-x86_64.iso
 ```
 
+Für ARM64 und den Raspberry Pi sieht der Ablauf anders aus: Statt archiso baut `build.sh` ein
+Disk-Image aus Arch Linux ARM. Details in [ARM und Raspberry Pi](arm-und-raspberry-pi.md).
+
 ## Projektordner
 
 ```
@@ -28,6 +31,7 @@ Distro Builder besteht aus zwei Teilen:
   cache/images/    Container-Images als docker-archive (.tar)
   work/            Arbeitsordner von mkarchiso (wird nach dem Build gelöscht)
   out/             fertige ISO-Dateien
+  mirror/          eigener Spiegelserver: cache/, archlinux/, repo/, server-kit/
 ```
 
 `profile/` wird bei jedem Erzeugen komplett neu aufgebaut. Eigene Änderungen am Profil gehen also
@@ -70,14 +74,17 @@ Diese Dateien landen zweimal im Profil: direkt in `airootfs/` und als Kopie in
 | `/etc/systemd/zram-generator.conf` | zram-Swap |
 | `/etc/systemd/system/ollama.service.d/10-<id>.conf` | Ollama-Modellpfad (siehe [KI und Container](ki-und-container.md)) |
 | `/etc/<id>/compose/…`, `<id>-compose@.service`, `<id>-container-import.service` | Container |
+| `/usr/local/bin/<id>-flatpak-setup`, `<id>-flatpak-setup.service` | Flatpak-Quellen und Apps beim ersten Start (siehe [Flatpak und Distrobox](flatpak-und-distrobox.md)) |
+| `/etc/<id>/distrobox.ini`, `/etc/systemd/user/<id>-distrobox.service` | Distrobox-Container beim ersten Anmelden |
 
 ### airootfs: nur im Live-System
 
 | Pfad | Zweck |
 |---|---|
-| `/usr/local/bin/live-setup` + `live-setup.service` | legt beim Booten den Benutzer `live` an (ohne Passwort, sudo ohne Passwort) |
+| `/usr/local/bin/live-setup` + `live-setup.service` | legt beim Booten den Live-Benutzer an (Name, Passwort-Hash und sudo laut [Live-System](live-system.md)) |
+| `/etc/systemd/system/getty@tty1.service.d/autologin.conf` | Konsolen-Autologin als Live-Benutzer (fehlt, wenn Autologin aus ist) |
 | `/etc/systemd/system/display-manager.service` | Link auf sddm, gdm oder lightdm |
-| `/etc/sddm.conf.d/autologin.conf` bzw. gdm/lightdm | automatische Anmeldung als `live` |
+| `/etc/sddm.conf.d/autologin.conf` bzw. gdm/lightdm | automatische Anmeldung als Live-Benutzer |
 | `/usr/local/bin/distro-installer`, `/usr/local/lib/distro-installer/distro-installer-backend` | der Installer (vorkompilierte Binärdateien, keine Vorlagen) |
 | `/etc/distro-installer.json` | Konfiguration für den Installer, siehe unten |
 | `/usr/share/applications/distro-installer.desktop` (+ Autostart) | Starter |
