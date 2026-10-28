@@ -3,7 +3,7 @@
 ## Beim Bauen
 
 **„archiso-Vorlage nicht gefunden“ / „mkarchiso nicht gefunden“**
-`archiso` installieren, entweder über den Button auf der Seite „ISO bauen“ oder mit `sudo pacman -S archiso`.
+`archiso` installieren, entweder über den Button auf der Seite „Bauen“ oder mit `sudo pacman -S archiso`.
 
 **Nach dem Passwort passiert nichts / „Abgebrochen (keine Berechtigung)“**
 `pkexec` braucht einen laufenden Polkit-Agenten, den jeder gängige Desktop mitbringt. Alternativ
@@ -27,11 +27,29 @@ Projektordner kannst du auf eine andere Platte legen. Abgebrochene Builds hinter
 der nächste Build räumt das auf, oder du löschst es selbst (`sudo rm -rf …/work`).
 
 **Container-Images lassen sich nicht laden**
-`skopeo` installieren (Button auf der Seite „ISO bauen“). Bei Docker als Fallback muss dein
+`skopeo` installieren (Button auf der Seite „Bauen“). Bei Docker als Fallback muss dein
 Benutzer Docker verwenden dürfen. Private Registries: vorher `skopeo login` bzw. `docker login`.
 
 **Modell nicht gefunden (404)**
 Den genauen Namen auf ollama.com nachsehen, zum Beispiel `qwen3:8b` statt `qwen3-8b`. „Größe prüfen“ zeigt Fehler sofort an.
+
+**„ARM-Emulation fehlt“ beim ARM- oder Raspberry-Pi-Image**
+`sudo pacman -S qemu-user-static qemu-user-static-binfmt` und danach
+`sudo systemctl restart systemd-binfmt`. Prüfen: `ls /proc/sys/fs/binfmt_misc/qemu-aarch64`.
+
+**`target not found` nur beim ARM-Image**
+Das Paket gibt es bei Arch Linux ARM nicht (z. B. viele proprietäre Programme). Nachsehen unter
+[archlinuxarm.org/packages](https://archlinuxarm.org/packages) – oder die App als Flatpak einbinden.
+
+**Flatpak-Apps fehlen nach der Installation**
+Ohne `flatpak` auf dem Build-Rechner oder ohne Netz beim Bauen werden sie erst beim ersten Start
+geladen. Stand: `systemctl status <id>-flatpak-setup`. Der Dienst wiederholt es bei jedem Start,
+bis alle Apps da sind.
+
+**Distrobox-Container wurden nicht angelegt**
+Sie entstehen beim ersten Anmelden und brauchen Internet: `systemctl --user status <id>-distrobox`.
+Erneut anstoßen: `rm ~/.local/state/<id>/distrobox.done` und neu anmelden – oder direkt
+`distrobox assemble create --file /etc/<id>/distrobox.ini`.
 
 **Build dauert sehr lange**
 xz-Kompression, NVIDIA-DKMS, CUDA/ROCm und große Modelle verlängern den Build deutlich. Für

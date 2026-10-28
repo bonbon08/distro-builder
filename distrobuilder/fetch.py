@@ -132,7 +132,7 @@ def container_tool():
     return None
 
 
-def pull_image(image, dest_dir, log):
+def pull_image(image, dest_dir, log, arch="amd64"):
     os.makedirs(dest_dir, exist_ok=True)
     dest = os.path.join(dest_dir, _image_file(image))
     if os.path.exists(dest) and os.path.getsize(dest) > 0:
@@ -148,10 +148,10 @@ def pull_image(image, dest_dir, log):
     if os.path.exists(tmp):
         os.remove(tmp)
     if tool == "skopeo":
-        cmds = [["skopeo", "copy", "--override-os", "linux", "--override-arch", "amd64",
+        cmds = [["skopeo", "copy", "--override-os", "linux", "--override-arch", arch,
                  f"docker://{ref}", f"docker-archive:{tmp}:{ref}"]]
     else:
-        cmds = [[tool, "pull", ref], [tool, "save", "-o", tmp, ref]]
+        cmds = [[tool, "pull", "--platform", f"linux/{arch}", ref], [tool, "save", "-o", tmp, ref]]
     for cmd in cmds:
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
@@ -201,11 +201,13 @@ def prepare_assets(cfg, pth, log, progress=None):
             step += 1
         _link_tree(store, air + OLLAMA_MODELS_DIR)
     if images:
-        idir = os.path.join(cache, "images")
+        oci_arch = C.oci_arch(cfg)
+        # getrennte Caches pro Architektur, damit ein Wechsel keine falschen Images mitbringt
+        idir = os.path.join(cache, "images" if oci_arch == "amd64" else f"images-{oci_arch}")
         wanted = set()
         for img in images:
             sub(0, f"Container-Image {img}")
-            wanted.add(os.path.basename(pull_image(img, idir, log)))
+            wanted.add(os.path.basename(pull_image(img, idir, log, oci_arch)))
             step += 1
         target = os.path.join(air, "var/lib", gid, "container-images")
         os.makedirs(target, exist_ok=True)

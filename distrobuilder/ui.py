@@ -36,8 +36,9 @@ PAGES = [
     ("repos", "Repositories", "network-server-symbolic"),
     ("packages", "Pakete", "package-x-generic-symbolic"),
     ("extras", "Container & KI", "applications-science-symbolic"),
+    ("apps", "Flatpak & Distrobox", "view-app-grid-symbolic"),
     ("installer", "Installer", "system-software-install-symbolic"),
-    ("build", "ISO bauen", "media-optical-symbolic"),
+    ("build", "Bauen", "media-optical-symbolic"),
 ]
 
 LOGO_MODES = [
@@ -57,7 +58,24 @@ BUILD_STAGES = [
     ("Setting up systemd-boot", 0.89, "Bootloader wird eingerichtet"),
     ("Creating ISO image", 0.92, "ISO-Datei wird geschrieben"),
     ("Done!", 1.0, "Fertig"),
+    # ARM-Image (build.sh aus profile.image_build_script)
+    ("==> Lade das Arch-Linux-ARM-Basissystem", 0.02, "Basissystem wird geladen"),
+    ("==> Erzeuge Image", 0.04, "Image wird angelegt"),
+    ("==> Lade Flatpak-Apps", 0.05, "Flatpak-Apps werden geladen"),
+    ("==> System wird im Image eingerichtet", 0.06, "System wird eingerichtet (Emulation, dauert)"),
+    ("==> System wird konfiguriert", 0.80, "System wird konfiguriert"),
+    ("==> Bootloader wird eingerichtet", 0.86, "Bootloader wird eingerichtet"),
+    ("==> Komprimiere Image", 0.90, "Image wird komprimiert"),
 ]
+
+IMAGE_SUFFIXES = (".iso", ".img", ".img.zst", ".img.xz")
+ARM_TOOLS = ("arch-install-scripts", "qemu-user-static", "qemu-user-static-binfmt")
+
+
+def arm_tools_ready():
+    emulated = os.uname().machine == "aarch64" or os.path.exists("/proc/sys/fs/binfmt_misc/qemu-aarch64") \
+        or os.path.exists("/usr/lib/binfmt.d/qemu-aarch64-static.conf")
+    return bool(shutil.which("arch-chroot")) and emulated
 
 
 def list_locales():
@@ -172,7 +190,8 @@ class BuilderWindow(Adw.ApplicationWindow):
         while (child := self.stack.get_first_child()) is not None:
             self.stack.remove(child)
         builders = {"general": self.page_general, "branding": self.page_branding, "repos": self.page_repos,
-                    "packages": self.page_packages, "extras": self.page_extras, "installer": self.page_installer,
+                    "packages": self.page_packages, "extras": self.page_extras, "apps": self.page_apps,
+                    "installer": self.page_installer,
                     "build": self.page_build}
         for key, _label, _icon in PAGES:
             self.stack.add_named(builders[key](), key)
@@ -360,6 +379,17 @@ class BuilderWindow(Adw.ApplicationWindow):
         grp.add(row)
         return row
 
+    def on_arch_changed(self):
+        # Kernel und Grafiktreiber an die Plattform anpassen
+        self.cfg["packages"]["kernel"] = C.kernel(self.cfg)
+        if self.cfg["packages"].get("gpu") not in C.gpus(self.cfg):
+            self.cfg["packages"]["gpu"] = "mesa"
+        if C.is_image(self.cfg) and self.cfg["ai"]["accel"] in ("cuda", "rocm"):
+            self.cfg["ai"]["accel"] = "cpu"
+        self.rebuild()
+        self.toast(C.ARCHES[C.arch(self.cfg)][1])
+        return False
+
     # ------------------------------------------------------------------ Seiten
     def page_general(self):
         page = Adw.PreferencesPage()
@@ -379,6 +409,15 @@ class BuilderWindow(Adw.ApplicationWindow):
         self._id_row = self.entry(grp, "ID (kleingeschrieben, für Dateinamen)", "general", "id")
         self.entry(grp, "Version", "general", "version")
         self.entry(grp, "Standard-Hostname", "general", "hostname")
+
+        plat = Adw.PreferencesGroup(title="Zielplattform",
+                                    description="x86_64 ergibt eine ISO mit Live-System und Installer. Für ARM und "
+                                                "den Raspberry Pi entsteht ein fertig installiertes Disk-Image "
+                                                "(Arch Linux ARM), das du direkt auf SD-Karte oder USB-Stick schreibst.")
+        page.add(plat)
+        row = self.combo(plat, "Architektur", [(k, v[0]) for k, v in C.ARCHES.items()], "build", "arch",
+                         subtitle=C.ARCHES[C.arch(self.cfg)][1])
+        row.connect("notify::selected", lambda *_: GLib.idle_add(self.on_arch_changed))
 
         grp2 = Adw.PreferencesGroup(title="Herausgeber &amp; Links", description="Optional")
         page.add(grp2)
@@ -583,13 +622,14 @@ class BuilderWindow(Adw.ApplicationWindow):
         page = Adw.PreferencesPage()
         base = Adw.PreferencesGroup(title="Grundsystem")
         page.add(base)
-        self.combo(base, "Kernel", C.KERNELS, "packages", "kernel")
+        self.combo(base, "Kernel", C.kernels(self.cfg), "packages", "kernel")
         self.combo(base, "Desktop-Umgebung", [(k, v[0]) for k, v in C.DESKTOPS.items()], "packages", "desktop",
                    subtitle="Inklusive Display-Manager und automatischer Anmeldung im Live-System")
-        self.combo(base, "Grafiktreiber", [(k, v[0]) for k, v in C.GPUS.items()], "packages", "gpu",
+        self.combo(base, "Grafiktreiber", [(k, v[0]) for k, v in C.gpus(self.cfg).items()], "packages", "gpu",
                    subtitle="NVIDIA nutzt DKMS – der Build dauert dadurch etwas länger")
-        self.switch(base, "Arch-Rettungswerkzeuge im Live-System", "packages", "rescue_tools",
-                    "Alle Tools des offiziellen Arch-ISOs (größer). Aus = schlankes Live-System")
+        if not C.is_image(self.cfg):
+            self.switch(base, "Arch-Rettungswerkzeuge im Live-System", "packages", "rescue_tools",
+                        "Alle Tools des offiziellen Arch-ISOs (größer). Aus = schlankes Live-System")
         self.pkg_count = Adw.ActionRow(title="Paketanzahl", css_classes=["property"])
         base.add(self.pkg_count)
 
@@ -646,10 +686,12 @@ class BuilderWindow(Adw.ApplicationWindow):
             GLib.idle_add(done, missing)
 
         def done(missing):
+            note = ("\n\nHinweis: Geprüft wird gegen die x86_64-Repos dieses Rechners. Für ARM können "
+                    "Pakete fehlen oder anders heißen.") if C.is_image(self.cfg) else ""
             if missing:
                 self.error("Unbekannte Pakete",
                            "Folgende Pakete wurden in den lokal bekannten Repos nicht gefunden "
-                           "(bei eigenen Repos ist das normal):\n\n" + ", ".join(missing))
+                           "(bei eigenen Repos ist das normal):\n\n" + ", ".join(missing) + note)
             else:
                 self.toast(f"Alle {len(names)} Pakete gefunden ✔")
         threading.Thread(target=work, daemon=True).start()
@@ -711,8 +753,9 @@ class BuilderWindow(Adw.ApplicationWindow):
         page.add(ai)
         self.ollama_row = self.switch(ai, "Ollama installieren", "ai", "ollama",
                                       "Dienst wird automatisch gestartet (Port 11434)")
-        self.combo(ai, "Beschleunigung", [(k, v[0]) for k, v in C.OLLAMA_ACCEL.items()], "ai", "accel",
-                   subtitle="CUDA/ROCm: mehrere GB groß")
+        accel = [(k, v[0]) for k, v in C.OLLAMA_ACCEL.items()
+                 if not (C.is_image(self.cfg) and k in ("cuda", "rocm"))]
+        self.combo(ai, "Beschleunigung", accel, "ai", "accel", subtitle="CUDA/ROCm: mehrere GB groß, nur x86_64")
         self.switch(ai, "Im Netzwerk freigeben", "ai", "expose", "OLLAMA_HOST=0.0.0.0 – andere Geräte dürfen zugreifen")
         self.switch(ai, "KI-Entwicklungsumgebung", "ai", "dev",
                     "PyTorch (passend zur Beschleunigung), Jupyter, NumPy, pandas, scikit-learn, huggingface-hub")
@@ -931,7 +974,252 @@ class BuilderWindow(Adw.ApplicationWindow):
         dlg.connect("response", resp)
         dlg.present(self)
 
+    def page_apps(self):
+        page = Adw.PreferencesPage()
+
+        # ---- Flatpak
+        fp = Adw.PreferencesGroup(title="Flatpak",
+                                  description="Apps aus Flathub oder anderen Flatpak-Quellen vorinstallieren. Sie "
+                                              "werden beim Bauen geladen und beim ersten Start eingerichtet – fehlt "
+                                              "etwas, lädt das System es nach, sobald Internet da ist.")
+        page.add(fp)
+        self.flatpak_row = self.switch(fp, "Flatpak einrichten", "flatpak", "enabled")
+        self.switch(fp, "Flathub als Quelle", "flatpak", "flathub", "dl.flathub.org – die größte Flatpak-Quelle")
+        self.switch(fp, "App-Store mit Flatpak-Unterstützung", "flatpak", "store",
+                    "KDE/LXQt: Discover, sonst GNOME Software")
+        self.switch(fp, "Apps beim Bauen mitliefern", "flatpak", "preload",
+                    "Braucht flatpak auf diesem Rechner. Aus = Download beim ersten Start")
+
+        apps = Adw.PreferencesGroup(title="Flatpak-Apps")
+        page.add(apps)
+        x86 = not C.is_image(self.cfg)
+        preset_ids = set()
+        for app_id, label, x86_only in C.FLATPAK_PRESETS:
+            if x86_only and not x86:
+                continue
+            preset_ids.add(app_id)
+            row = Adw.SwitchRow(title=label, subtitle=app_id, active=app_id in self.cfg["flatpak"]["apps"])
+            row.connect("notify::active", lambda r, _p, a=app_id: self.toggle_flatpak(a, r.get_active()))
+            apps.add(row)
+
+        self.flatpak_custom_grp = Adw.PreferencesGroup(
+            title="Weitere Flatpak-Apps",
+            description="App-ID wie auf flathub.org, z. B. org.inkscape.Inkscape. Aus einer eigenen Quelle: "
+                        "quelle:app.id")
+        page.add(self.flatpak_custom_grp)
+        add = Adw.EntryRow(title="App hinzufügen", show_apply_button=True)
+
+        def on_apply(r):
+            entry = r.get_text().strip()
+            if not C.FLATPAK_APP_RE.match(entry.rpartition(":")[2]):
+                self.toast("Ungültige App-ID")
+                return
+            self.toggle_flatpak(entry, True)
+            r.set_text("")
+            self.refresh_flatpak_custom(preset_ids)
+        add.connect("apply", on_apply)
+        self.flatpak_custom_grp.add(add)
+        self.flatpak_custom_rows = []
+        self.refresh_flatpak_custom(preset_ids)
+
+        self.remotes_grp = Adw.PreferencesGroup(
+            title="Eigene Flatpak-Quellen",
+            description="Name und Adresse einer .flatpakrepo-Datei, z. B. "
+                        "kde → https://distribute.kde.org/kdeapps.flatpakrepo")
+        page.add(self.remotes_grp)
+        rname = Adw.EntryRow(title="Name der Quelle")
+        rurl = Adw.EntryRow(title="URL (.flatpakrepo)", show_apply_button=True)
+
+        def on_remote(_r):
+            name, url = rname.get_text().strip(), rurl.get_text().strip()
+            if not C.REMOTE_RE.match(name) or not url.startswith(("http://", "https://")):
+                self.toast("Bitte Namen (a-z, 0-9, _ -) und URL angeben")
+                return
+            self.cfg["flatpak"]["remotes"] = [x for x in self.cfg["flatpak"]["remotes"] if x["name"] != name]
+            self.cfg["flatpak"]["remotes"].append({"name": name, "url": url})
+            rname.set_text("")
+            rurl.set_text("")
+            self.refresh_remotes()
+            self.changed()
+        rurl.connect("apply", on_remote)
+        self.remotes_grp.add(rname)
+        self.remotes_grp.add(rurl)
+        self.remote_rows = []
+        self.refresh_remotes()
+
+        # ---- Distrobox
+        db = Adw.PreferencesGroup(
+            title="Distrobox",
+            description="Andere Distributionen als Container im Terminal – mit Zugriff auf das Home-Verzeichnis. "
+                        "Die Container werden beim ersten Anmelden jedes Benutzers angelegt (braucht Internet).")
+        page.add(db)
+        self.distrobox_row = self.switch(db, "Distrobox installieren", "distrobox", "enabled",
+                                         "Nutzt Podman (wird bei Bedarf mitinstalliert) oder Docker")
+        self.boxes_grp = Adw.PreferencesGroup(title="Container", description="Starten mit 'distrobox enter &lt;name&gt;'")
+        menu = Gio.Menu()
+        for key, (label, _img) in C.DISTROBOX_PRESETS.items():
+            menu.append(label, f"win.box-preset::{key}")
+        menu.append("Eigener Container …", "win.box-preset::custom")
+        self.boxes_grp.set_header_suffix(Gtk.MenuButton(icon_name="list-add-symbolic", menu_model=menu,
+                                                        css_classes=["flat"], tooltip_text="Container hinzufügen"))
+        if not self.lookup_action("box-preset"):
+            act = Gio.SimpleAction.new("box-preset", GLib.VariantType.new("s"))
+            act.connect("activate", lambda _a, v: self.add_box_preset(v.get_string()))
+            self.add_action(act)
+        page.add(self.boxes_grp)
+        self.box_rows = []
+        self.refresh_boxes()
+        return page
+
+    def toggle_flatpak(self, app_id, active):
+        apps = self.cfg["flatpak"]["apps"]
+        if active and app_id not in apps:
+            apps.append(app_id)
+            if not self.cfg["flatpak"]["enabled"]:
+                self.flatpak_row.set_active(True)
+                self.toast("Flatpak wurde aktiviert")
+        elif not active and app_id in apps:
+            apps.remove(app_id)
+        self.changed()
+
+    def refresh_flatpak_custom(self, preset_ids):
+        for r in self.flatpak_custom_rows:
+            self.flatpak_custom_grp.remove(r)
+        self.flatpak_custom_rows = []
+        for app in [a for a in self.cfg["flatpak"]["apps"] if a not in preset_ids]:
+            row = Adw.ActionRow(title=html.escape(app))
+            rm = Gtk.Button(icon_name="user-trash-symbolic", css_classes=["flat"], valign=Gtk.Align.CENTER)
+            rm.connect("clicked", lambda *_a, a=app: (self.toggle_flatpak(a, False),
+                                                      self.refresh_flatpak_custom(preset_ids)))
+            row.add_suffix(rm)
+            self.flatpak_custom_grp.add(row)
+            self.flatpak_custom_rows.append(row)
+
+    def refresh_remotes(self):
+        for r in self.remote_rows:
+            self.remotes_grp.remove(r)
+        self.remote_rows = []
+        for i, rem in enumerate(self.cfg["flatpak"]["remotes"]):
+            row = Adw.ActionRow(title=html.escape(rem["name"]), subtitle=html.escape(rem["url"]))
+            rm = Gtk.Button(icon_name="user-trash-symbolic", css_classes=["flat"], valign=Gtk.Align.CENTER)
+            rm.connect("clicked", lambda *_a, idx=i: (self.cfg["flatpak"]["remotes"].pop(idx),
+                                                      self.refresh_remotes(), self.changed()))
+            row.add_suffix(rm)
+            self.remotes_grp.add(row)
+            self.remote_rows.append(row)
+
+    def refresh_boxes(self):
+        for r in self.box_rows:
+            self.boxes_grp.remove(r)
+        self.box_rows = []
+        boxes = self.cfg["distrobox"]["boxes"]
+        if not boxes:
+            row = Adw.ActionRow(title="Keine Container",
+                                subtitle="Mit + eine Vorlage (Ubuntu, Fedora, Debian …) oder ein eigenes Image wählen")
+            self.boxes_grp.add(row)
+            self.box_rows.append(row)
+        for i, box in enumerate(boxes):
+            extra = [x for x in (box.get("packages"), box.get("export") and "Apps: " + box["export"]) if x]
+            row = Adw.ActionRow(title=html.escape(box["name"]),
+                                subtitle=html.escape(" · ".join([box["image"]] + extra)))
+            edit = Gtk.Button(icon_name="document-edit-symbolic", css_classes=["flat"], valign=Gtk.Align.CENTER)
+            edit.connect("clicked", lambda *_a, idx=i: self.box_dialog(idx))
+            rm = Gtk.Button(icon_name="user-trash-symbolic", css_classes=["flat"], valign=Gtk.Align.CENTER)
+            rm.connect("clicked", lambda *_a, idx=i: (self.cfg["distrobox"]["boxes"].pop(idx),
+                                                      self.refresh_boxes(), self.changed()))
+            row.add_suffix(edit)
+            row.add_suffix(rm)
+            self.boxes_grp.add(row)
+            self.box_rows.append(row)
+
+    def add_box_preset(self, key):
+        if not self.cfg["distrobox"]["enabled"]:
+            self.distrobox_row.set_active(True)
+            self.toast("Distrobox wurde aktiviert")
+        if key == "custom":
+            self.box_dialog()
+            return
+        label, image = C.DISTROBOX_PRESETS[key]
+        if any(b["name"] == key for b in self.cfg["distrobox"]["boxes"]):
+            self.toast(f"{label} ist bereits vorhanden")
+            return
+        self.cfg["distrobox"]["boxes"].append({"name": key, "image": image, "packages": "", "export": ""})
+        self.refresh_boxes()
+        self.changed()
+
+    def box_dialog(self, idx=None):
+        box = dict(self.cfg["distrobox"]["boxes"][idx]) if idx is not None else \
+            {"name": "", "image": "", "packages": "", "export": ""}
+        dlg = Adw.AlertDialog(heading="Distrobox-Container" if idx is not None else "Eigener Distrobox-Container")
+        lst = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE, width_request=480)
+        name = Adw.EntryRow(title="Name (a-z, 0-9, _ . -)", text=box["name"])
+        image = Adw.EntryRow(title="Image, z. B. docker.io/library/ubuntu:24.04", text=box["image"])
+        pkgs = Adw.EntryRow(title="Zusätzliche Pakete im Container (optional)", text=box.get("packages", ""))
+        export = Adw.EntryRow(title="Apps ins Menü übernehmen (optional)", text=box.get("export", ""))
+        for w in (name, image, pkgs, export):
+            lst.append(w)
+        dlg.set_extra_child(lst)
+        dlg.add_response("cancel", "Abbrechen")
+        dlg.add_response("ok", "Speichern")
+        dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+
+        def resp(_d, r):
+            if r != "ok":
+                return
+            new = {"name": name.get_text().strip(), "image": image.get_text().strip(),
+                   "packages": pkgs.get_text().strip(), "export": export.get_text().strip()}
+            if not C.BOX_RE.match(new["name"]):
+                self.toast("Ungültiger Name (a-z, 0-9, _ . -)")
+                return
+            if not C.IMAGE_RE.match(new["image"]):
+                self.toast("Ungültiger Image-Name")
+                return
+            boxes = self.cfg["distrobox"]["boxes"]
+            if any(b["name"] == new["name"] for j, b in enumerate(boxes) if j != idx):
+                self.toast("Der Name ist bereits vergeben")
+                return
+            if idx is None:
+                boxes.append(new)
+            else:
+                boxes[idx] = new
+            self.refresh_boxes()
+            self.changed()
+        dlg.connect("response", resp)
+        dlg.present(self)
+
+    def page_image(self):
+        page = Adw.PreferencesPage()
+        label = C.ARCHES[C.arch(self.cfg)][0]
+        grp = Adw.PreferencesGroup(
+            title="Fertiges System",
+            description=f"Für {label} gibt es keinen Installer: Das Image enthält ein fertig eingerichtetes System. "
+                        "Beim ersten Start wächst die Partition auf die Größe der SD-Karte bzw. des Datenträgers.")
+        page.add(grp)
+        self.entry(grp, "Benutzername", "image", "username")
+        pw = Adw.PasswordEntryRow(title="Startpasswort", text=self.cfg["image"]["password"])
+        pw.connect("changed", lambda r: (self.cfg["image"].__setitem__("password", r.get_text()), self.changed()))
+        grp.add(pw)
+        self.switch(grp, "Passwort beim ersten Anmelden ändern", "image", "expire_password")
+        self.switch(grp, "Automatisch anmelden", "image", "autologin", "Nur mit Desktop-Umgebung")
+        self.switch(grp, "zram-Swap aktivieren", "installer", "zram", "Komprimierter Swap im RAM")
+        size = Adw.SpinRow.new_with_range(3, 256, 1)
+        size.set_title("Image-Größe (GB)")
+        size.set_subtitle("Platz für System, Modelle und Apps – wächst beim ersten Start automatisch")
+        size.set_value(self.cfg["image"].get("size_gb", 8))
+        size.connect("notify::value", lambda r, _p: (self.cfg["image"].__setitem__("size_gb", int(r.get_value())),
+                                                     self.changed()))
+        grp.add(size)
+
+        d = Adw.PreferencesGroup(title="Region", description="Sprache, Zeitzone und Tastatur des Systems")
+        page.add(d)
+        self.combo(d, "Sprache", self._locales, "installer", "locale", search=True)
+        self.combo(d, "Zeitzone", self._timezones, "installer", "timezone", search=True)
+        self.combo(d, "Tastaturlayout", self._layouts, "installer", "keyboard", search=True)
+        return page
+
     def page_installer(self):
+        if C.is_image(self.cfg):
+            return self.page_image()
         page = Adw.PreferencesPage()
         grp = Adw.PreferencesGroup(title="Grafischer Installer",
                                    description="Ein eigener GTK-Installer: Festplatte wählen, Benutzer anlegen, "
@@ -991,6 +1279,17 @@ class BuilderWindow(Adw.ApplicationWindow):
         self.skopeo_btn.connect("clicked", lambda *_: self.install_pkg("skopeo"))
         self.skopeo_row.add_suffix(self.skopeo_btn)
         req.add(self.skopeo_row)
+        self.arm_row = Adw.ActionRow(title="ARM-Image bauen",
+                                     subtitle="arch-install-scripts, QEMU-Emulation (qemu-user-static-binfmt)")
+        self.arm_btn = Gtk.Button(label="Installieren", valign=Gtk.Align.CENTER)
+        self.arm_btn.connect("clicked", lambda *_: self.install_pkg(*ARM_TOOLS))
+        self.arm_row.add_suffix(self.arm_btn)
+        req.add(self.arm_row)
+        self.flatpak_req_row = Adw.ActionRow(title="Flatpak-Apps mitliefern")
+        self.flatpak_btn = Gtk.Button(label="flatpak installieren", valign=Gtk.Align.CENTER)
+        self.flatpak_btn.connect("clicked", lambda *_: self.install_pkg("flatpak"))
+        self.flatpak_req_row.add_suffix(self.flatpak_btn)
+        req.add(self.flatpak_req_row)
 
         out = Adw.PreferencesGroup(title="Ausgabe")
         page.add(out)
@@ -999,7 +1298,7 @@ class BuilderWindow(Adw.ApplicationWindow):
         pick.connect("clicked", self.pick_dir)
         self.dir_row.add_suffix(pick)
         out.add(self.dir_row)
-        self.combo(out, "Kompression", [("zstd", "zstd – schneller Build"), ("xz", "xz – kleinere ISO")],
+        self.combo(out, "Kompression", [("zstd", "zstd – schneller Build"), ("xz", "xz – kleinere Datei")],
                    "build", "compression")
 
         act = Adw.PreferencesGroup()
@@ -1007,7 +1306,8 @@ class BuilderWindow(Adw.ApplicationWindow):
         btns = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER, margin_top=6, margin_bottom=6)
         self.profile_btn = Gtk.Button(label="Nur Profil erzeugen", css_classes=["pill"])
         self.profile_btn.connect("clicked", self.on_profile_only)
-        self.build_btn = Gtk.Button(label="ISO bauen", css_classes=["pill", "suggested-action"])
+        self.build_btn = Gtk.Button(label="Image bauen" if C.is_image(self.cfg) else "ISO bauen",
+                                    css_classes=["pill", "suggested-action"])
         self.build_btn.connect("clicked", self.on_build)
         self.cancel_btn = Gtk.Button(label="Abbrechen", css_classes=["pill", "destructive-action"], visible=False)
         self.cancel_btn.connect("clicked", self.on_cancel)
@@ -1028,7 +1328,8 @@ class BuilderWindow(Adw.ApplicationWindow):
 
         self.result_grp = Adw.PreferencesGroup(title="Ergebnis", visible=False)
         page.add(self.result_grp)
-        self.iso_row = Adw.ActionRow(title="ISO-Datei", subtitle_selectable=True)
+        self.iso_row = Adw.ActionRow(title="Image-Datei" if C.is_image(self.cfg) else "ISO-Datei",
+                                     subtitle_selectable=True)
         open_btn = Gtk.Button(label="Ordner öffnen", valign=Gtk.Align.CENTER)
         open_btn.connect("clicked", lambda *_: subprocess.Popen(["xdg-open", os.path.dirname(self.last_iso)]))
         self.qemu_btn = Gtk.Button(label="In VM testen", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
@@ -1048,9 +1349,21 @@ class BuilderWindow(Adw.ApplicationWindow):
         tool = F.container_tool()
         self.skopeo_row.set_subtitle(f"✔ über {tool}" if tool else "✘ skopeo, docker oder podman wird benötigt")
         self.skopeo_btn.set_visible(not tool)
+        image = C.is_image(self.cfg)
         has = shutil.which("mkarchiso") is not None and os.path.isdir(P.RELENG)
+        self.archiso_row.set_visible(not image)
         self.archiso_row.set_subtitle("✔ installiert" if has else "✘ nicht installiert – wird zum Bauen benötigt")
         self.archiso_btn.set_visible(not has)
+        self.arm_row.set_visible(image)
+        arm_ok = arm_tools_ready()
+        self.arm_row.set_subtitle("✔ bereit" if arm_ok else
+                                  "✘ arch-install-scripts und QEMU-Emulation (qemu-user-static-binfmt) fehlen")
+        self.arm_btn.set_visible(not arm_ok)
+        self.flatpak_req_row.set_visible(P.flatpak_preload(self.cfg))
+        has_fp = shutil.which("flatpak") is not None
+        self.flatpak_req_row.set_subtitle("✔ flatpak installiert" if has_fp else
+                                          "✘ flatpak fehlt – sonst werden die Apps erst beim ersten Start geladen")
+        self.flatpak_btn.set_visible(not has_fp)
         pth = P.paths(self.cfg)
         self.dir_row.set_subtitle(html.escape(pth["base"]))
         probe = os.path.expanduser(self.cfg["build"]["project_dir"])
@@ -1061,7 +1374,8 @@ class BuilderWindow(Adw.ApplicationWindow):
             self.space_row.set_subtitle(f"{free:.1f} GB frei" + ("  ⚠ empfohlen: mind. 20 GB" if free < 20 else ""))
         except OSError:
             self.space_row.set_subtitle("unbekannt")
-        isos = sorted(f for f in os.listdir(pth["out"]) if f.endswith(".iso")) if os.path.isdir(pth["out"]) else []
+        isos = sorted(f for f in os.listdir(pth["out"]) if f.endswith(IMAGE_SUFFIXES)) \
+            if os.path.isdir(pth["out"]) else []
         if isos:
             self.show_result(os.path.join(pth["out"], isos[-1]))
 
@@ -1116,10 +1430,11 @@ class BuilderWindow(Adw.ApplicationWindow):
     def install_archiso(self, *_):
         self.install_pkg("archiso")
 
-    def install_pkg(self, pkg):
-        self.log(f"Installiere {pkg} …")
-        self.run_streaming(["pkexec", "pacman", "-S", "--needed", "--noconfirm", pkg], self.log,
-                           lambda rc: (self.toast(f"{pkg} installiert" if rc == 0 else "Installation fehlgeschlagen"),
+    def install_pkg(self, *pkgs):
+        names = " ".join(pkgs)
+        self.log(f"Installiere {names} …")
+        self.run_streaming(["pkexec", "pacman", "-S", "--needed", "--noconfirm", *pkgs], self.log,
+                           lambda rc: (self.toast(f"{names} installiert" if rc == 0 else "Installation fehlgeschlagen"),
                                        self.refresh_build_info()))
 
     def prepare(self):
@@ -1176,7 +1491,12 @@ class BuilderWindow(Adw.ApplicationWindow):
             self.fetch_assets(pth, finished)
 
     def on_build(self, *_):
-        if not shutil.which("mkarchiso"):
+        if C.is_image(self.cfg):
+            if not arm_tools_ready():
+                self.error("Werkzeuge fehlen", "Für ARM-Images werden arch-install-scripts und die QEMU-Emulation "
+                                               "benötigt (Button „Installieren“ oben).")
+                return
+        elif not shutil.which("mkarchiso"):
             self.error("archiso fehlt", "Bitte zuerst archiso installieren (Button oben).")
             return
         self.log_view.get_buffer().set_text("")
@@ -1224,13 +1544,14 @@ class BuilderWindow(Adw.ApplicationWindow):
             GLib.source_remove(self._pulse)
             self._pulse = None
         out = self._build_out
-        new = sorted(f for f in os.listdir(out) if f.endswith(".iso") and f not in started) \
+        new = sorted(f for f in os.listdir(out) if f.endswith(IMAGE_SUFFIXES) and f not in started) \
             if os.path.isdir(out) else []
+        kind = "Image" if C.is_image(self.cfg) else "ISO"
         if rc == 0 and new:
             self.build_bar.set_fraction(1)
-            self.build_status.set_label("ISO erfolgreich gebaut 🎉")
+            self.build_status.set_label(f"{kind} erfolgreich gebaut 🎉")
             self.show_result(os.path.join(out, new[-1]))
-            self.toast("ISO fertig!")
+            self.toast(f"{kind} fertig!")
         elif rc in (126, 127):
             self.build_status.set_label("Abgebrochen (keine Berechtigung)")
         else:
@@ -1246,12 +1567,14 @@ class BuilderWindow(Adw.ApplicationWindow):
         except OSError:
             size = 0
         self.iso_row.set_subtitle(html.escape(f"{iso}  ({size:.2f} GB)"))
-        self.qemu_btn.set_visible(bool(shutil.which("run_archiso") and shutil.which("qemu-system-x86_64")))
+        self.qemu_btn.set_visible(iso.endswith(".iso") and bool(shutil.which("run_archiso")
+                                                                and shutil.which("qemu-system-x86_64")))
         self.result_grp.set_visible(True)
 
     def on_cancel(self, *_):
         self.log("Abbruch angefordert …")
-        subprocess.Popen(["pkexec", "pkill", "-TERM", "-f", "mkarchiso"])
+        pattern = P.paths(self.cfg)["script"] if C.is_image(self.cfg) else "mkarchiso"
+        subprocess.Popen(["pkexec", "pkill", "-TERM", "-f", pattern])
 
     def run_vm(self, *_):
         if not self.last_iso:

@@ -16,6 +16,9 @@ Distro Builder besteht aus zwei Teilen:
  pkexec bash build.sh ──► mkarchiso ──► out/<id>-<version>-<datum>-x86_64.iso
 ```
 
+Für ARM64 und den Raspberry Pi sieht der Ablauf anders aus: Statt archiso baut `build.sh` ein
+Disk-Image aus Arch Linux ARM. Details in [ARM und Raspberry Pi](arm-und-raspberry-pi.md).
+
 ## Projektordner
 
 ```
@@ -69,6 +72,8 @@ Diese Dateien landen zweimal im Profil: direkt in `airootfs/` und als Kopie in
 | `/etc/systemd/zram-generator.conf` | zram-Swap |
 | `/etc/systemd/system/ollama.service.d/10-<id>.conf` | Ollama-Modellpfad (siehe [KI und Container](ki-und-container.md)) |
 | `/etc/<id>/compose/…`, `<id>-compose@.service`, `<id>-container-import.service` | Container |
+| `/usr/local/bin/<id>-flatpak-setup`, `<id>-flatpak-setup.service` | Flatpak-Quellen und Apps beim ersten Start (siehe [Flatpak und Distrobox](flatpak-und-distrobox.md)) |
+| `/etc/<id>/distrobox.ini`, `/etc/systemd/user/<id>-distrobox.service` | Distrobox-Container beim ersten Anmelden |
 
 ### airootfs: nur im Live-System
 

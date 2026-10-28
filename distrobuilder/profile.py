@@ -200,6 +200,7 @@ def build_overlay(cfg, root):
         _write(os.path.join(root, "etc/systemd/zram-generator.conf"),
                "[zram0]\nzram-size = min(ram / 2, 8192)\ncompression-algorithm = zstd\n")
     execs += build_ai_containers(cfg, root)
+    execs += build_apps(cfg, root)
     return execs
 
 
@@ -259,6 +260,78 @@ def build_ai_containers(cfg, root):
     return execs
 
 
+def flatpak_setup_script(cfg):
+    gid = cfg["general"]["id"]
+    lines = ["#!/bin/sh",
+             "# Richtet Flatpak-Quellen ein und installiert die vorgesehenen Apps (einmalig, braucht Internet,",
+             "# wenn die Apps nicht schon beim Bauen mitgeliefert wurden)",
+             f"TAR=/var/lib/{gid}/flatpak.tar",
+             'if [ -f "$TAR" ]; then',
+             '  mkdir -p /var/lib/flatpak && tar -xpf "$TAR" -C /var/lib/flatpak && rm -f "$TAR"',
+             "fi",
+             "ok=1"]
+    for name, url in C.flatpak_remotes(cfg):
+        lines.append(f"flatpak remote-add --system --if-not-exists {bash_str(name)} {bash_str(url)} || ok=0")
+    for remote, app in C.flatpak_apps(cfg):
+        lines.append(f"flatpak info --system {bash_str(app)} >/dev/null 2>&1 || "
+                     f"flatpak install --system --noninteractive {bash_str(remote)} {bash_str(app)} || ok=0")
+    lines += [f'[ "$ok" = 1 ] && mkdir -p /var/lib/{gid} && touch /var/lib/{gid}/flatpak-setup.done', "exit 0"]
+    return "\n".join(lines) + "\n"
+
+
+def distrobox_ini(cfg):
+    out = ["# Erzeugt von Distro Builder – wird beim ersten Anmelden mit 'distrobox assemble' angelegt", ""]
+    for box in cfg["distrobox"]["boxes"]:
+        out += [f"[{box['name']}]", f"image={box['image']}", "pull=true", "replace=false"]
+        pkgs = " ".join(p for p in re.split(r"[\s,]+", box.get("packages", "")) if p)
+        if pkgs:
+            out.append(f'additional_packages="{pkgs}"')
+        apps = " ".join(a for a in re.split(r"[\s,]+", box.get("export", "")) if a)
+        if apps:
+            out.append(f'exported_apps="{apps}"')
+        out.append("")
+    return "\n".join(out)
+
+
+def build_apps(cfg, root):
+    """Flatpak-Quellen/Apps und Distrobox-Container (werden beim ersten Start bzw. Anmelden eingerichtet)."""
+    g = cfg["general"]
+    gid, execs = g["id"], []
+    if cfg["flatpak"]["enabled"]:
+        _write(os.path.join(root, "usr/local/bin", f"{gid}-flatpak-setup"), flatpak_setup_script(cfg))
+        execs.append(f"/usr/local/bin/{gid}-flatpak-setup")
+        _write(os.path.join(root, "etc/systemd/system", f"{gid}-flatpak-setup.service"),
+               f"[Unit]\nDescription={g['name']}: Flatpak-Quellen und Apps einrichten\n"
+               f"Wants=network-online.target\nAfter=network-online.target\n"
+               f"ConditionPathExists=!/var/lib/{gid}/flatpak-setup.done\n{NOT_LIVE}\n\n"
+               f"[Service]\nType=oneshot\nExecStart=/usr/local/bin/{gid}-flatpak-setup\nTimeoutStartSec=0\n\n"
+               f"[Install]\nWantedBy=multi-user.target\n")
+    if C.distrobox_active(cfg) and cfg["distrobox"]["boxes"]:
+        _write(os.path.join(root, "etc", gid, "distrobox.ini"), distrobox_ini(cfg))
+        if cfg["containers"]["engine"] == "docker":
+            _write(os.path.join(root, "etc/distrobox/distrobox.conf"), 'container_manager="docker"\n')
+        state = f"%h/.local/state/{gid}"
+        unit = f"{gid}-distrobox.service"
+        _write(os.path.join(root, "etc/systemd/user", unit),
+               f"[Unit]\nDescription={g['name']}: Distrobox-Container einrichten\n"
+               f"ConditionPathExists=!{state}/distrobox.done\n{NOT_LIVE}\n\n"
+               f"[Service]\nType=oneshot\n"
+               f"ExecStart=/usr/bin/distrobox assemble create --file /etc/{gid}/distrobox.ini\n"
+               f"ExecStartPost=/usr/bin/mkdir -p {state}\nExecStartPost=/usr/bin/touch {state}/distrobox.done\n"
+               f"TimeoutStartSec=0\n\n[Install]\nWantedBy=default.target\n")
+        # global für alle Benutzer aktivieren (entspricht 'systemctl --global enable')
+        _symlink(f"/etc/systemd/user/{unit}", os.path.join(root, "etc/systemd/user/default.target.wants", unit))
+    return execs
+
+
+def extra_services(cfg):
+    """Eigene Dienste, die im installierten System aktiviert werden."""
+    svcs = compose_services(cfg)
+    if cfg["flatpak"]["enabled"]:
+        svcs.append(f"{cfg['general']['id']}-flatpak-setup.service")
+    return svcs
+
+
 def compose_services(cfg):
     gid, ct = cfg["general"]["id"], cfg["containers"]
     if ct["engine"] == "none":
@@ -308,11 +381,12 @@ def live_only_paths(releng_air, cfg, overlay_files):
 def pacman_conf(cfg):
     r = cfg["repos"]
     server = f"Server = {r['mirror'].strip()}" if r["mirror"].strip() else "Include = /etc/pacman.d/mirrorlist"
+    arm = C.is_image(cfg)
     out = [
         "# Erzeugt von Distro Builder",
         "[options]",
         "HoldPkg     = pacman glibc",
-        "Architecture = auto",
+        f"Architecture = {C.pacman_arch(cfg) if arm else 'auto'}",
         "Color",
         "ILoveCandy",
         "ParallelDownloads = 5",
@@ -324,15 +398,55 @@ def pacman_conf(cfg):
         if repo.get("first"):
             out += [f"[{repo['name']}]", f"SigLevel = {repo.get('siglevel', 'Optional TrustAll')}",
                     f"Server = {repo['server']}", ""]
-    for key, name in (("core_testing", "core-testing"), ("core", "core"), ("extra_testing", "extra-testing"),
-                      ("extra", "extra"), ("multilib", "multilib")):
-        if r.get(key) or key == "core":
+    if arm:
+        # Arch Linux ARM: keine Testing- und multilib-Repos, dafür [alarm] und [aur]
+        official = ((None, "core"), ("extra", "extra"), (None, "alarm"), (None, "aur"))
+    else:
+        official = (("core_testing", "core-testing"), (None, "core"), ("extra_testing", "extra-testing"),
+                    ("extra", "extra"), ("multilib", "multilib"))
+    for key, name in official:
+        if key is None or r.get(key):
             out += [f"[{name}]", server, ""]
     for repo in r["custom"]:
         if not repo.get("first"):
             out += [f"[{repo['name']}]", f"SigLevel = {repo.get('siglevel', 'Optional TrustAll')}",
                     f"Server = {repo['server']}", ""]
     return "\n".join(out)
+
+
+def flatpak_preload(cfg):
+    return cfg["flatpak"]["enabled"] and cfg["flatpak"]["preload"] and bool(C.flatpak_apps(cfg))
+
+
+def flatpak_preload_script(cfg, target):
+    """Bash-Abschnitt für build.sh: lädt Flatpaks in eine eigene Installation im Cache (als root)."""
+    if not flatpak_preload(cfg):
+        return ""
+    farch = C.pacman_arch(cfg)
+    lines = ["", "# Flatpak-Apps vorladen (schlägt das fehl, installiert sie das System beim ersten Start)",
+             f'FLATPAK_CACHE="$BASE/cache/flatpak-{farch}"',
+             "flatpak_preload() {",
+             '  mkdir -p -- "$FLATPAK_CACHE"',
+             '  export FLATPAK_SYSTEM_DIR="$FLATPAK_CACHE"']
+    for name, url in C.flatpak_remotes(cfg):
+        lines.append(f"  flatpak remote-add --system --if-not-exists {bash_str(name)} {bash_str(url)} || return 1")
+    by_remote = {}
+    for remote, app in C.flatpak_apps(cfg):
+        by_remote.setdefault(remote, []).append(app)
+    for remote, apps in by_remote.items():
+        lines.append(f"  flatpak install --system --noninteractive --or-update --arch={farch} {bash_str(remote)} "
+                     + " ".join(bash_str(a) for a in apps) + " || return 1")
+    lines += ["}",
+              "if ! command -v flatpak >/dev/null; then",
+              "  echo \"WARNUNG: flatpak ist nicht installiert – die Apps werden erst beim ersten Start geladen.\"",
+              "elif echo '==> Lade Flatpak-Apps' && flatpak_preload; then",
+              target,
+              "else",
+              "  echo \"WARNUNG: Flatpak-Apps konnten nicht vorgeladen werden – sie werden beim ersten Start geladen.\"",
+              "fi",
+              f"chown -R {os.getuid()}:{os.getgid()} -- \"$BASE/cache\" 2>/dev/null || true",
+              ""]
+    return "\n".join(lines)
 
 
 def installer_json(cfg, live_files=(), live_dirs=()):
@@ -342,6 +456,8 @@ def installer_json(cfg, live_files=(), live_dirs=()):
         data_paths.append(OLLAMA_MODELS_DIR)
     if cfg["containers"]["preload"] and C.container_images(cfg):
         data_paths.append(f"/var/lib/{g['id']}/container-images")
+    if flatpak_preload(cfg):
+        data_paths.append(f"/var/lib/{g['id']}/flatpak.tar")
     return json.dumps({
         "name": g["name"],
         "id": g["id"],
@@ -349,7 +465,7 @@ def installer_json(cfg, live_files=(), live_dirs=()):
         "logo": f"/usr/share/{g['id']}/logo.png" if cfg["branding"]["logo"] else "",
         "welcome": i["welcome"],
         "packages": C.target_packages(cfg),
-        "services": C.target_services(cfg) + compose_services(cfg),
+        "services": C.target_services(cfg) + extra_services(cfg),
         "kernel_params": C.kernel_params(cfg),
         "zram": i["zram"],
         "allow_online": i.get("allow_online", True),
@@ -408,12 +524,28 @@ def _edit_profiledef(cfg, profile, perms):
         f.write(text)
 
 
+def autologin_files(dm, session, user):
+    """Konfigurationsdateien für die automatische Anmeldung (Pfad -> Inhalt)."""
+    if dm == "sddm":
+        return {"etc/sddm.conf.d/autologin.conf": f"[Autologin]\nUser={user}\nSession={session}\n"}
+    if dm == "gdm":
+        return {"etc/gdm/custom.conf": f"[daemon]\nAutomaticLoginEnable=True\nAutomaticLogin={user}\n"}
+    if dm == "lightdm":
+        return {"etc/lightdm/lightdm.conf.d/50-autologin.conf":
+                f"[Seat:*]\nautologin-user={user}\nautologin-session={session}\n"}
+    return {}
+
+
 def build_script(cfg):
     pth = paths(cfg)
     uid, gid = os.getuid(), os.getgid()
+    # Flatpaks als Tar-Archiv: mkarchiso kopiert airootfs ohne Dateirechte, das Archiv behält sie
+    tar = f'"$PROFILE/airootfs/var/lib/{cfg["general"]["id"]}/flatpak.tar"'
+    flatpak = flatpak_preload_script(cfg, f'  tar -C "$FLATPAK_CACHE" -cf {tar} . && chown {uid}:{gid} -- {tar}')
     return f"""#!/bin/bash
 # Erzeugt von Distro Builder – kann auch manuell mit 'sudo bash build.sh' ausgeführt werden.
 set -euo pipefail
+BASE={bash_str(pth['base'])}
 PROFILE={bash_str(pth['profile'])}
 WORK={bash_str(pth['work'])}
 OUT={bash_str(pth['out'])}
@@ -425,6 +557,7 @@ cleanup() {{ rm -rf -- "$WORK"; }}
 trap cleanup EXIT
 rm -rf -- "$WORK"
 mkdir -p -- "$OUT"
+{flatpak}
 mkarchiso -v -r -w "$WORK" -o "$OUT" "$PROFILE"
 chown -R {uid}:{gid} -- "$OUT"
 echo "##DONE##"
@@ -435,6 +568,8 @@ def generate(cfg, log=print, releng=RELENG):
     errors, _ = C.validate(cfg)
     if errors:
         raise ProfileError("\n".join(errors))
+    if C.is_image(cfg):
+        return generate_image(cfg, log)
     if not os.path.isdir(releng):
         raise ProfileError(f"archiso-Vorlage nicht gefunden ({releng}). Ist 'archiso' installiert?")
 
@@ -473,6 +608,8 @@ def generate(cfg, log=print, releng=RELENG):
            f'Section "InputClass"\n    Identifier "system-keyboard"\n    MatchIsKeyboard "on"\n'
            f'    Option "XkbLayout" "{kb}"\nEndSection\n')
     execs = build_overlay(cfg, air)
+    if flatpak_preload(cfg):
+        os.makedirs(os.path.join(air, "var/lib", gid), exist_ok=True)
     staging = os.path.join(air, "usr/share", gid, "overlay")
     build_overlay(cfg, staging)
     overlay_files = set()
@@ -497,15 +634,8 @@ def generate(cfg, log=print, releng=RELENG):
         _symlink("/usr/lib/systemd/system/NetworkManager.service",
                  os.path.join(systemd, "multi-user.target.wants/NetworkManager.service"))
         _symlink(f"/usr/lib/systemd/system/{dm}.service", os.path.join(systemd, "display-manager.service"))
-        if dm == "sddm":
-            _write(os.path.join(air, "etc/sddm.conf.d/autologin.conf"),
-                   f"[Autologin]\nUser=live\nSession={session}\n")
-        elif dm == "gdm":
-            _write(os.path.join(air, "etc/gdm/custom.conf"),
-                   "[daemon]\nAutomaticLoginEnable=True\nAutomaticLogin=live\n")
-        elif dm == "lightdm":
-            _write(os.path.join(air, "etc/lightdm/lightdm.conf.d/50-autologin.conf"),
-                   f"[Seat:*]\nautologin-user=live\nautologin-session={session}\n")
+        for rel, content in autologin_files(dm, session, "live").items():
+            _write(os.path.join(air, rel), content)
 
         _write(os.path.join(air, "usr/local/bin/live-setup"),
                _template("live-setup.sh", cfg).replace(
@@ -549,6 +679,233 @@ def generate(cfg, log=print, releng=RELENG):
 
     _edit_profiledef(cfg, profile, perms)
     _write(pth["script"], build_script(cfg), 0o755)
+    _write(os.path.join(pth["base"], "project.json"), json.dumps(cfg, indent=2, ensure_ascii=False))
+    log(f"Profil fertig ({time.strftime('%H:%M:%S')})")
+    return pth
+
+
+# ---------------------------------------------------------------- ARM: fertiges Disk-Image
+ALARM_KEY = "68B3537F39A313B3E574D06777193F152BDBE6A6"  # Arch Linux ARM Build System
+
+
+def image_services(cfg):
+    gid = cfg["general"]["id"]
+    return C._dedup(C.target_services(cfg) + extra_services(cfg)
+                    + [f"{gid}-growfs.service", f"{gid}-pacman-init.service"])
+
+
+def image_overlay(cfg, air):
+    """Systemeinstellungen, die beim ISO der Installer setzt – hier direkt ins Image."""
+    g, i, img = cfg["general"], cfg["installer"], cfg["image"]
+    gid, host, kb = g["id"], g["hostname"], i["keyboard"]
+    _write(os.path.join(air, "etc/hostname"), host + "\n")
+    _write(os.path.join(air, "etc/hosts"), f"127.0.0.1 localhost\n::1 localhost\n127.0.1.1 {host}.localdomain {host}\n")
+    _write(os.path.join(air, "etc/locale.conf"), f"LANG={i['locale']}\n")
+    _write(os.path.join(air, "etc/vconsole.conf"), f"KEYMAP={console_keymap(kb)}\n")
+    _write(os.path.join(air, "etc/X11/xorg.conf.d/00-keyboard.conf"),
+           f'Section "InputClass"\n    Identifier "system-keyboard"\n    MatchIsKeyboard "on"\n'
+           f'    Option "XkbLayout" "{kb}"\nEndSection\n')
+    _write(os.path.join(air, "etc/sudoers.d/10-wheel"), "%wheel ALL=(ALL:ALL) ALL\n")
+    _label, _p, dm, session = C.desktop_info(cfg)
+    if dm and img["autologin"]:
+        for rel, content in autologin_files(dm, session, img["username"]).items():
+            _write(os.path.join(air, rel), content)
+    if dm == "lightdm":
+        _write(os.path.join(air, "etc/lightdm/lightdm.conf.d/10-greeter.conf"),
+               "[Seat:*]\ngreeter-session=lightdm-gtk-greeter\n")
+    _write(os.path.join(air, "usr/local/bin", f"{gid}-growfs"),
+           "#!/bin/sh\n# Vergrößert die Root-Partition beim ersten Start auf den ganzen Datenträger\nset -e\n"
+           "ROOT=$(findmnt -no SOURCE /)\nDISK=/dev/$(lsblk -no PKNAME \"$ROOT\")\n"
+           "PART=$(cat \"/sys/class/block/$(basename \"$ROOT\")/partition\")\n"
+           "sfdisk --relocate gpt-bak-std \"$DISK\" 2>/dev/null || true\n"
+           "echo ', +' | sfdisk --force --no-reread -N \"$PART\" \"$DISK\" || true\n"
+           "partx -u \"$DISK\" || true\nresize2fs \"$ROOT\"\n"
+           f"mkdir -p /var/lib/{gid} && touch /var/lib/{gid}/growfs.done\n", 0o755)
+    _write(os.path.join(air, "etc/systemd/system", f"{gid}-growfs.service"),
+           f"[Unit]\nDescription={g['name']}: Root-Partition vergrößern\n"
+           f"ConditionPathExists=!/var/lib/{gid}/growfs.done\nAfter=local-fs.target\n\n"
+           f"[Service]\nType=oneshot\nExecStart=/usr/local/bin/{gid}-growfs\n\n"
+           f"[Install]\nWantedBy=multi-user.target\n")
+    _write(os.path.join(air, "etc/systemd/system", f"{gid}-pacman-init.service"),
+           f"[Unit]\nDescription={g['name']}: Paketschlüssel einrichten\n"
+           f"ConditionPathExists=!/etc/pacman.d/gnupg\nBefore=archlinux-keyring-wkd-sync.service\n\n"
+           f"[Service]\nType=oneshot\nExecStart=/usr/bin/pacman-key --init\n"
+           f"ExecStart=/usr/bin/pacman-key --populate archlinuxarm\n\n[Install]\nWantedBy=multi-user.target\n")
+
+
+def image_setup_script(cfg):
+    g, i, img = cfg["general"], cfg["installer"], cfg["image"]
+    services = " ".join(bash_str(s) for s in image_services(cfg))
+    variables = "\n".join([
+        f"PLATFORM={bash_str(C.arch(cfg))}",
+        f"KERNEL={bash_str(C.kernel(cfg))}",
+        f"NAME={bash_str(g['name'])}",
+        f"GID={bash_str(g['id'])}",
+        f"USERNAME={bash_str(img['username'])}",
+        f"PASSWORD={bash_str(img['password'])}",
+        f"EXPIRE={1 if img.get('expire_password', True) else 0}",
+        f"AUTOLOGIN={1 if img['autologin'] and C.desktop_info(cfg)[2] else 0}",
+        f"FASTFETCH={1 if cfg['branding']['fastfetch_on_terminal'] else 0}",
+        f"DESKTOP={0 if cfg['packages']['desktop'] == 'none' else 1}",
+        f"LOCALE={bash_str(i['locale'])}",
+        f"TIMEZONE={bash_str(i['timezone'])}",
+        f"KPARAMS={bash_str(' '.join(C.kernel_params(cfg)))}",
+        f"SERVICES=({services})",
+    ])
+    with open(os.path.join(TEMPLATES, "image-setup.sh"), encoding="utf-8") as f:
+        text = f.read()
+    return text.replace("@@NAME@@", g["name"]).replace("@@VARS@@", variables)
+
+
+def image_build_script(cfg):
+    pth = paths(cfg)
+    g, plat = cfg["general"], C.arch(cfg)
+    uid, gid = os.getuid(), os.getgid()
+    url = C.ALARM_TARBALLS[plat]
+    label = re.sub(r"[^A-Za-z0-9_]", "_", g["id"])[:16]
+    layout = "label: dos\n,512MiB,c,*\n,,L\n" if plat == "rpi" else "label: gpt\n,512MiB,U\n,,L\n"
+    flatpak = flatpak_preload_script(
+        cfg, '  mkdir -p "$MNT/var/lib/flatpak" && cp -a "$FLATPAK_CACHE/." "$MNT/var/lib/flatpak/" '
+             '&& chown -R 0:0 "$MNT/var/lib/flatpak"')
+    if cfg["build"]["compression"] == "xz":
+        compress = 'xz -T0 -c "$IMG" > "$OUT/$IMG_NAME.img.xz"'
+        tool = "xz"
+    else:
+        compress = 'zstd -T0 -q -f -o "$OUT/$IMG_NAME.img.zst" "$IMG"'
+        tool = "zstd"
+    return f"""#!/bin/bash
+# Erzeugt von Distro Builder – baut das Disk-Image für {C.ARCHES[plat][0]}.
+# Kann auch manuell mit 'sudo bash build.sh' ausgeführt werden.
+set -euo pipefail
+BASE={bash_str(pth['base'])}
+PROFILE={bash_str(pth['profile'])}
+WORK={bash_str(pth['work'])}
+OUT={bash_str(pth['out'])}
+CACHE="$BASE/cache"
+URL={bash_str(url)}
+IMG_NAME={bash_str(f"{g['id']}-{g['version']}-{plat}-")}"$(date +%Y.%m.%d)"
+SIZE_GB={int(cfg['image']['size_gb'])}
+MNT="$WORK/mnt"
+LOOP=""
+
+for t in arch-chroot:arch-install-scripts bsdtar:libarchive curl:curl sfdisk:util-linux losetup:util-linux \\
+         mkfs.vfat:dosfstools mkfs.ext4:e2fsprogs; do
+  if ! command -v "${{t%%:*}}" >/dev/null; then
+    echo "FEHLER: ${{t%%:*}} fehlt. Bitte 'pacman -S ${{t#*:}}' installieren." >&2
+    exit 1
+  fi
+done
+if [ "$(uname -m)" != aarch64 ] && [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+  systemctl restart systemd-binfmt.service 2>/dev/null || true
+  if [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+    echo "FEHLER: ARM-Emulation fehlt. Bitte 'pacman -S qemu-user-static qemu-user-static-binfmt' installieren." >&2
+    exit 1
+  fi
+fi
+
+cleanup() {{
+  set +e
+  mountpoint -q "$MNT" && umount -R "$MNT"
+  mountpoint -q "$WORK/esp" && umount "$WORK/esp"
+  [ -n "$LOOP" ] && losetup -d "$LOOP"
+  rm -rf -- "$WORK"
+}}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+rm -rf -- "$WORK"
+mkdir -p -- "$MNT" "$WORK/esp" "$OUT" "$CACHE"
+
+echo "==> Lade das Arch-Linux-ARM-Basissystem"
+TAR="$CACHE/$(basename "$URL")"
+curl -fsSL --retry 3 -o "$TAR.md5" "$URL.md5"
+if ! (cd "$CACHE" && md5sum --status -c "$(basename "$TAR").md5"); then
+  curl -fL --retry 3 -o "$TAR" "$URL"
+  (cd "$CACHE" && md5sum -c "$(basename "$TAR").md5")
+fi
+if command -v gpg >/dev/null; then
+  export GNUPGHOME="$WORK/gnupg"
+  mkdir -m 700 -- "$GNUPGHOME"
+  if gpg --batch --quiet --keyserver hkps://keyserver.ubuntu.com --recv-keys {ALARM_KEY} 2>/dev/null \\
+     && curl -fsSL --retry 3 -o "$TAR.sig" "$URL.sig"; then
+    gpg --batch --quiet --verify "$TAR.sig" "$TAR" || {{ echo "FEHLER: Signatur des Basissystems ist ungültig" >&2; exit 1; }}
+    echo "Signatur geprüft ✔"
+  else
+    echo "WARNUNG: Signatur konnte nicht geprüft werden (Schlüsselserver nicht erreichbar) – nur MD5 geprüft."
+  fi
+  unset GNUPGHOME
+fi
+
+echo "==> Erzeuge Image ($SIZE_GB GB)"
+IMG="$WORK/$IMG_NAME.img"
+truncate -s "${{SIZE_GB}}G" "$IMG"
+printf {bash_str(layout)} | sfdisk -q "$IMG"
+LOOP=$(losetup -fP --show "$IMG")
+udevadm settle 2>/dev/null || true
+mkfs.vfat -F 32 -n BOOT "${{LOOP}}p1" >/dev/null
+mkfs.ext4 -q -F -L {bash_str(label)} "${{LOOP}}p2"
+mount "${{LOOP}}p2" "$MNT"
+
+echo "==> Entpacke das Basissystem"
+bsdtar -xpf "$TAR" -C "$MNT"
+# /boot liegt auf FAT32 (keine Symlinks/Rechte) – Inhalt hinüberkopieren
+mount "${{LOOP}}p1" "$WORK/esp"
+cp -rL "$MNT/boot/." "$WORK/esp/"
+umount "$WORK/esp"
+find "$MNT/boot" -mindepth 1 -delete
+mount "${{LOOP}}p1" "$MNT/boot"
+
+echo "==> Übernehme Branding und Einstellungen"
+tar -C "$PROFILE/airootfs" --owner=0 --group=0 -cf - . | tar -C "$MNT" -xpf -
+install -m644 "$PROFILE/pacman.conf" "$MNT/etc/pacman.conf"
+install -m600 "$PROFILE/setup.sh" "$MNT/root/setup.sh"
+install -m644 "$PROFILE/packages.txt" "$MNT/root/packages.txt"
+{flatpak}
+echo "==> System wird im Image eingerichtet (unter Emulation dauert das)"
+arch-chroot "$MNT" /usr/bin/env \\
+  ROOT_UUID="$(blkid -s UUID -o value "${{LOOP}}p2")" \\
+  BOOT_UUID="$(blkid -s UUID -o value "${{LOOP}}p1")" \\
+  ROOT_PARTUUID="$(blkid -s PARTUUID -o value "${{LOOP}}p2")" \\
+  /bin/bash /root/setup.sh
+rm -f -- "$MNT/root/setup.sh" "$MNT/root/packages.txt"
+sync
+umount -R "$MNT"
+losetup -d "$LOOP"
+LOOP=""
+
+echo "==> Komprimiere Image"
+if command -v {tool} >/dev/null; then
+  {compress}
+else
+  mv -- "$IMG" "$OUT/$IMG_NAME.img"
+fi
+chown -R {uid}:{gid} -- "$OUT"
+echo "Fertig: $(ls -1t "$OUT" | head -n1)"
+echo "##DONE##"
+"""
+
+
+def generate_image(cfg, log=print):
+    """Profil für ein fertiges ARM-Image: Overlay, Paketliste, Einrichtungsskript und build.sh."""
+    pth = paths(cfg)
+    os.makedirs(pth["base"], exist_ok=True)
+    profile = pth["profile"]
+    log(f"Erzeuge Image-Profil für {C.ARCHES[C.arch(cfg)][0]} in {profile}")
+    _remove(profile)
+    air = os.path.join(profile, "airootfs")
+    os.makedirs(air)
+    execs = build_overlay(cfg, air)
+    image_overlay(cfg, air)
+    for e in execs:
+        os.chmod(air + e, 0o755)
+    pkgs = C.image_packages(cfg)
+    _write(os.path.join(profile, "packages.txt"), "\n".join(pkgs) + "\n")
+    log(f"{len(pkgs)} Pakete, Kernel {C.kernel(cfg)}")
+    pconf = pacman_conf(cfg)
+    _write(os.path.join(profile, "pacman.conf"), pconf)
+    _write(os.path.join(profile, "setup.sh"), image_setup_script(cfg), 0o600)
+    if cfg["ai"]["ollama"] and cfg["ai"]["models"]:
+        log(f"KI-Modelle: {', '.join(cfg['ai']['models'])}")
+    _write(pth["script"], image_build_script(cfg), 0o755)
     _write(os.path.join(pth["base"], "project.json"), json.dumps(cfg, indent=2, ensure_ascii=False))
     log(f"Profil fertig ({time.strftime('%H:%M:%S')})")
     return pth
