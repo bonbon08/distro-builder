@@ -127,7 +127,7 @@ Die Oberfläche schreibt deine Auswahl in eine temporäre JSON-Datei (mit Rechte
 danach gelöscht) und startet:
 
 ```bash
-sudo python3 /usr/local/lib/distro-installer/backend.py auswahl.json
+sudo /usr/local/lib/distro-installer/distro-installer-backend auswahl.json
 ```
 
 Beispiel für `auswahl.json`:

@@ -161,12 +161,13 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
 
 ## Ohne Oberfläche bauen
 
-```python
-from distrobuilder import config, profile, fetch
+```rust
+use distro_builder_core::{config, fetch, profile};
 
-cfg = config.load("nebulaos.json")
-pth = profile.generate(cfg)            # erzeugt ~/DistroBuilder/<id>/profile und build.sh
-fetch.prepare_assets(cfg, pth, print)  # Modelle und Images
+let cfg = config::load(std::path::Path::new("nebulaos.json"))?;
+let bins = profile::locate_installer_binaries();
+let pth = profile::generate(&cfg, |l| println!("{l}"), std::path::Path::new(profile::RELENG), bins.as_ref())?;
+fetch::prepare_assets(&cfg, &pth, &mut |l: &str| println!("{l}"), None)?; // Modelle und Images
 ```
 
 ```bash

@@ -10,9 +10,19 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Abhängigkeiten installieren
-        run: pacman -Syu --noconfirm --needed archiso python python-gobject gdk-pixbuf2 ruff git
+        run: pacman -Syu --noconfirm --needed archiso gtk4 libadwaita rust git base-devel
       - uses: actions/checkout@v4
+      - name: Format prüfen
+        run: cargo fmt --all -- --check
       - name: Lint
-        run: ruff check --select E,F,W,B --ignore E741,E501 .
+        run: cargo clippy --workspace --all-targets --locked
       - name: Tests
-        run: python -m unittest discover -s tests -v
+        run: cargo test --workspace --locked
+      - name: Alle Binärdateien bauen
+        # distro-builder-core's archiso-profile test below needs the compiled
+        # distro-installer/distro-installer-backend binaries to embed into the
+        # profile; `cargo test -p distro-builder-core` alone wouldn't build
+        # those sibling-crate binaries.
+        run: cargo build --workspace --locked
+      - name: Profil-Erzeugung gegen echtes archiso-releng
+        run: cargo test -p distro-builder-core --locked -- --include-ignored

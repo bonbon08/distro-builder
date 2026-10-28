@@ -33,11 +33,12 @@ makepkg -si
 ### Direkt aus dem Quellordner
 
 ```bash
-sudo pacman -S --needed python python-gobject gtk4 libadwaita archiso
-./distro-builder
+sudo pacman -S --needed rust gtk4 libadwaita archiso
+cargo build --release --workspace
+cargo run --release -p distro-builder
 ```
 
-Benötigt: Python ≥ 3.10, PyGObject, GTK ≥ 4.12, libadwaita ≥ 1.5, `archiso`, `polkit` (für `pkexec`).
+Benötigt: Rust/Cargo, GTK ≥ 4.12, libadwaita ≥ 1.5, `archiso`, `polkit` (für `pkexec`).
 Bauen lassen sich die ISOs nur auf Arch Linux oder einer Arch-basierten Distribution, weil `mkarchiso` pacman braucht.
 
 Optional:
@@ -106,23 +107,29 @@ Mehr dazu in [docs/architektur.md](docs/architektur.md).
 ## Entwicklung
 
 ```bash
-make check                     # = python3 -m unittest discover -s tests -v
-ruff check --select E,F,W,B --ignore E741,E501 .
+make check                     # = cargo test --release --locked --workspace
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked
 ```
 
-Die Profil-Tests nutzen die releng-Vorlage aus `/usr/share/archiso/configs/releng`. Einen anderen Pfad
-setzt du mit `DISTRO_BUILDER_RELENG`. Die GitHub-CI führt Lint und Tests in einem `archlinux`-Container aus.
+Die Profil-Tests (`distro-builder-core`) nutzen die releng-Vorlage aus `/usr/share/archiso/configs/releng`
+und sind standardmäßig `#[ignore]`d, weil sie `archiso` voraussetzen. Einen anderen Pfad setzt du mit
+`DISTRO_BUILDER_RELENG`; ausführen mit `cargo test -p distro-builder-core -- --include-ignored`. Die
+GitHub-CI führt Formatierung, Lint und Tests (inklusive der Profil-Tests) in einem `archlinux`-Container aus.
 
 ```
-distro-builder              Startskript
-distrobuilder/
-  ui.py                     GTK4/libadwaita-Oberfläche
-  config.py                 Standardwerte, Presets, Paketlisten, Validierung
-  profile.py                Erzeugt das archiso-Profil
-  fetch.py                  Lädt Ollama-Modelle und Container-Images
-  templates/                Dateien für die ISO (Installer, Backend, Branding, Live-Setup)
-tests/                      unittest-Tests
-docs/                       Dokumentation
+Cargo.toml                          Workspace mit vier Crates
+crates/
+  distro-builder-core/              Konfiguration, Profil-Erzeugung, Downloads (Bibliothek)
+    src/config.rs                  Standardwerte, Presets, Paketlisten, Validierung
+    src/profile.rs                 Erzeugt das archiso-Profil
+    src/fetch.rs                   Lädt Ollama-Modelle und Container-Images
+    src/installer_conf.rs          Geteiltes JSON-Schema für /etc/distro-installer.json
+    templates/                     Branding-/Live-Setup-Shellskripte für die ISO
+  distro-builder/                   GTK4/libadwaita-Oberfläche (Binary „distro-builder“)
+  distro-installer/                 Grafischer Installer im Live-System (Binary „distro-installer“)
+  distro-installer-backend/         Root-Backend des Installers (Partitionierung, pacstrap, Bootloader)
+docs/                                Dokumentation
 ```
 
 Fehler und Ideen gerne als [Issue](https://github.com/bonbon08/distro-builder/issues) melden.

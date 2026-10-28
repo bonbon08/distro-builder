@@ -28,7 +28,7 @@ Phi-4 mini, nomic-embed-text). Eigene Modelle trägst du so ein:
 
 **So kommen die Modelle in die ISO**
 
-1. `fetch.py` lädt Manifest und Blobs direkt über die Registry-API (`registry.ollama.ai` bzw. `hf.co`). Auf dem Build-Rechner muss Ollama dafür nicht installiert sein.
+1. `distro-builder-core::fetch` lädt Manifest und Blobs direkt über die Registry-API (`registry.ollama.ai` bzw. `hf.co`). Auf dem Build-Rechner muss Ollama dafür nicht installiert sein.
 2. Jeder Blob wird mit SHA256 geprüft. Abgebrochene Downloads werden fortgesetzt.
 3. Gespeichert wird im Ollama-Format unter `~/DistroBuilder/<id>/cache/ollama/{manifests,blobs}`.
 4. Per Hardlink (oder Kopie) landen die Dateien in `airootfs/var/lib/ollama/models`.
