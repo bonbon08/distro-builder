@@ -11,6 +11,10 @@
 - Live-Benutzer frei wählbar: Name, Passwort (nur als SHA-512-crypt-Hash gespeichert), sudo mit/ohne Passwort oder gar nicht, Autologin für Desktop und Konsole, `copytoram`
 - Flatpak-Apps funktionieren im reinen Live-System (direkt im SquashFS)
 - Seite „Installer“ heißt jetzt „Live & Installer“
+- Eigener Spiegelserver: eingebauter Caching-Proxy (HTTP mit Range-Unterstützung, Datenbanken max. 5 Minuten gecacht, Auslieferung aus dem Cache bei Ausfall des Upstreams) oder vollständiger rsync-Spiegel; die Distro trägt ihn vor den offiziellen Mirrors ein
+- Eigenes Paket-Repository per `repo-add`, ausgeliefert vom Spiegel und in der Distro als `[<id>]` eingebunden
+- `distro-builder --mirror-server [projekt.json]` betreibt den Spiegel ohne Oberfläche; „Server-Paket exportieren“ erzeugt nginx-Konfiguration, `compose.yaml`, Sync-Skript und systemd-Timer
+- Vor dem Build wird geprüft, ob ein zwingend benötigter Spiegel erreichbar ist
 
 - Komplett in Rust neu geschrieben (vorher Python/PyGObject): Cargo-Workspace mit vier Crates
   (`distro-builder-core` als gemeinsame Bibliothek für Konfiguration/Profil-Erzeugung/Downloads,

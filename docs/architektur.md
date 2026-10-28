@@ -31,6 +31,7 @@ Disk-Image aus Arch Linux ARM. Details in [ARM und Raspberry Pi](arm-und-raspber
   cache/images/    Container-Images als docker-archive (.tar)
   work/            Arbeitsordner von mkarchiso (wird nach dem Build gelöscht)
   out/             fertige ISO-Dateien
+  mirror/          eigener Spiegelserver: cache/, archlinux/, repo/, server-kit/
 ```
 
 `profile/` wird bei jedem Erzeugen komplett neu aufgebaut. Eigene Änderungen am Profil gehen also

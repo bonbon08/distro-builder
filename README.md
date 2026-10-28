@@ -9,6 +9,7 @@ grafischen Installer** für PCs oder ein **fertiges Image für ARM64 und den Ras
 
 - **Branding:** Name, `/etc/os-release`, Logo für fastfetch/neofetch (Bild, Zeichengrafik oder ASCII-Art), Akzentfarbe, Hintergrundbild, Bootmenü, motd
 - **Repositories:** core, extra, multilib, testing, eigener Mirror, eigene Repos mit SigLevel und Reihenfolge
+- **Eigener Spiegelserver:** eingebauter Caching-Proxy oder vollständiger rsync-Spiegel für deine Rechner, eigenes Paket-Repository (z. B. selbst gebaute AUR-Pakete), ohne Oberfläche per `distro-builder --mirror-server` oder als nginx/Docker-Paket für einen eigenen Server
 - **Pakete:** Kernel (linux, lts, zen, hardened), Desktop (KDE Plasma, GNOME, Xfce, Cinnamon, LXQt), Grafiktreiber (Mesa, AMD, Intel, NVIDIA), Paket-Sammlungen, Paketsuche
 - **KI:** Ollama mit CPU, CUDA, ROCm oder Vulkan. Modelle wie Llama, Qwen, Gemma oder Mistral werden **direkt in die ISO gepackt**. Optional PyTorch und Jupyter.
 - **Container:** Docker oder Podman, vorgeladene Images, Container-Apps als Compose-Stacks (Open WebUI, Portainer, SearXNG oder eigene)
@@ -73,7 +74,7 @@ Projekte speicherst du mit Strg+S als JSON. Der letzte Stand wird beim Schließe
 |---|---|
 | **Allgemein** | Name, ID, Version, Hostname, Zielplattform, Herausgeber, URLs |
 | **Branding** | Logo, Logo-Modus, Akzentfarbe, ASCII-Logo, Live-Vorschau, Hintergrund, motd, fastfetch beim Terminalstart |
-| **Repositories** | Offizielle Repos, Mirror, eigene Repos, Vorschau der erzeugten `pacman.conf` |
+| **Repositories** | Offizielle Repos, Paketquelle, eigene Repos, eigener Spiegelserver (Proxy/rsync, Server starten, eigenes Paket-Repo, Server-Paket exportieren), Vorschau der erzeugten `pacman.conf` |
 | **Pakete** | Kernel, Desktop, Grafiktreiber, Rettungswerkzeuge, Sammlungen, eigene Pakete, Suche, Prüfung |
 | **Container & KI** | Ollama, Beschleunigung, Modelle mit Größenprüfung, Entwicklungsumgebung, Docker/Podman, Images, Compose-Stacks |
 | **Flatpak & Distrobox** | Flatpak an/aus, Flathub, App-Store, Vorladen, Apps, eigene Quellen, Distrobox-Container |
@@ -111,6 +112,7 @@ Mehr dazu in [docs/architektur.md](docs/architektur.md).
 
 - [Architektur und erzeugte Dateien](docs/architektur.md)
 - [Live-System](docs/live-system.md): nur Live-System, Live-Benutzer und Passwort, copytoram
+- [Eigener Spiegelserver](docs/spiegelserver.md): Caching-Proxy, vollständiger Spiegel, eigenes Paket-Repo, Dauerbetrieb
 - [Der grafische Installer](docs/installer.md): Partitionierung, Verschlüsselung, Offline-Installation
 - [KI und Container](docs/ki-und-container.md): Ollama, Modelle, Docker/Podman, Compose-Stacks
 - [Flatpak und Distrobox](docs/flatpak-und-distrobox.md): Apps aus anderen Quellen, Container mit anderen Distributionen
@@ -140,6 +142,7 @@ crates/
     src/profile.rs                 Erzeugt das archiso-Profil bzw. das Profil für ARM-Images
     src/fetch.rs                   Lädt Ollama-Modelle und Container-Images
     src/passwd.rs                  SHA-512-crypt für Passwort-Hashes
+    src/mirror.rs                  Spiegelserver (HTTP, Caching-Proxy), eigenes Repo, Server-Paket
     src/installer_conf.rs          Geteiltes JSON-Schema für /etc/distro-installer.json
     templates/                     Shellskripte für ISO (Branding, Live-Setup) und ARM-Image (Build, Setup)
   distro-builder/                   GTK4/libadwaita-Oberfläche (Binary „distro-builder“)
@@ -153,7 +156,7 @@ Fehler und Ideen gerne als [Issue](https://github.com/bonbon08/distro-builder/is
 ## Hinweise
 
 - Distro Builder ist ein unabhängiges Projekt und steht in keiner Verbindung zu Arch Linux. Bevor du eine Distribution veröffentlichst, beachte die [Markenrichtlinien von Arch Linux](https://terms.archlinux.org/docs/trademark-policy/).
-- AUR-Pakete lassen sich nicht direkt einbinden. Baue sie selbst und stelle sie über ein eigenes Repository bereit (siehe [Fehlerbehebung](docs/fehlerbehebung.md#aur-pakete)).
+- AUR-Pakete lassen sich nicht direkt einbinden. Baue sie selbst und stelle sie über das eigene Paket-Repository des [Spiegelservers](docs/spiegelserver.md#eigenes-paket-repository) bereit.
 
 ## Lizenz
 

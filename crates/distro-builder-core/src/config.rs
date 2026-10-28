@@ -284,6 +284,93 @@ pub struct Distrobox {
     pub boxes: Vec<DistroboxBox>,
 }
 
+/// Eigener Spiegelserver für die Distro (Caching-Proxy oder vollständiger rsync-Spiegel).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MirrorServer {
+    /// Die Distro (Build, Live-System, installiertes System) nutzt den Spiegel
+    pub enabled: bool,
+    /// proxy | full
+    pub mode: String,
+    /// Adresse, unter der der Spiegel erreichbar ist, z. B. http://192.168.1.10:8080
+    pub url: String,
+    pub port: u16,
+    /// HTTP-Quelle des Proxys im pacman-Format ($repo/$arch); leer = Standard der Plattform
+    pub upstream: String,
+    /// rsync-Quelle für den vollständigen Spiegel
+    pub rsync_upstream: String,
+    /// Offizielle Mirrors als Ausweichquelle eintragen
+    pub fallback: bool,
+    /// Eigenes Paket-Repository [<id>] ausliefern
+    pub own_repo: bool,
+}
+
+impl Default for MirrorServer {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: "proxy".into(),
+            url: String::new(),
+            port: 8080,
+            upstream: String::new(),
+            rsync_upstream: "rsync://ftp.halifax.rwth-aachen.de/archlinux/".into(),
+            fallback: true,
+            own_repo: false,
+        }
+    }
+}
+
+pub fn mirror_modes() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("proxy", "Caching-Proxy – speichert nur, was gebraucht wird"),
+        ("full", "Vollständiger Spiegel per rsync (80 GB und mehr)"),
+    ]
+}
+
+/// HTTP-Quelle, aus der der Proxy lädt (pacman-Server-Format mit $repo/$arch).
+pub fn mirror_upstream(cfg: &Config) -> String {
+    let m = &cfg.mirror_server;
+    if !m.upstream.trim().is_empty() {
+        return m.upstream.trim().trim_end_matches('/').to_string();
+    }
+    if !cfg.repos.mirror.trim().is_empty() {
+        return cfg.repos.mirror.trim().trim_end_matches('/').to_string();
+    }
+    if is_image(cfg) {
+        "http://mirror.archlinuxarm.org/$arch/$repo".into()
+    } else {
+        "https://geo.mirror.pkgbuild.com/$repo/os/$arch".into()
+    }
+}
+
+/// Offizielle Repos, die die Distro nutzt (und die der Spiegel vorhält).
+pub fn official_repos(cfg: &Config) -> Vec<&'static str> {
+    let r = &cfg.repos;
+    if is_image(cfg) {
+        let mut v = vec!["core"];
+        if r.extra {
+            v.push("extra");
+        }
+        v.extend(["alarm", "aur"]);
+        return v;
+    }
+    let mut v = Vec::new();
+    if r.core_testing {
+        v.push("core-testing");
+    }
+    v.push("core");
+    if r.extra_testing {
+        v.push("extra-testing");
+    }
+    if r.extra {
+        v.push("extra");
+    }
+    if r.multilib {
+        v.push("multilib");
+    }
+    v
+}
+
 /// Live-System der ISO: Benutzer, Passwort und Startverhalten.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -377,6 +464,7 @@ pub struct Config {
     pub packages: Packages,
     pub installer: InstallerCfg,
     pub live: LiveCfg,
+    pub mirror_server: MirrorServer,
     pub containers: Containers,
     pub ai: Ai,
     pub flatpak: Flatpak,
@@ -1522,6 +1610,7 @@ pub fn validate(cfg: &Config) -> (Vec<String>, Vec<String>) {
         warnings.push("Testing-Repositories können instabil sein.".to_string());
     }
     validate_live(cfg, &mut errors, &mut warnings);
+    validate_mirror(cfg, &mut errors, &mut warnings);
     validate_arch(cfg, &mut errors, &mut warnings);
     validate_flatpak(cfg, &mut errors, &mut warnings);
     validate_distrobox(cfg, &mut errors, &mut warnings);
@@ -1567,6 +1656,53 @@ fn validate_live(cfg: &Config, errors: &mut Vec<String>, warnings: &mut Vec<Stri
     if !l.autologin && l.password_hash.is_empty() {
         warnings.push(
             "Ohne automatische Anmeldung und ohne Passwort meldet man sich mit dem Benutzernamen ohne Passwort an."
+                .to_string(),
+        );
+    }
+}
+
+fn validate_mirror(cfg: &Config, errors: &mut Vec<String>, warnings: &mut Vec<String>) {
+    let m = &cfg.mirror_server;
+    if !m.enabled {
+        return;
+    }
+    let url_re = Regex::new(r"^https?://[^\s/]+(/\S*)?$").unwrap();
+    if !url_re.is_match(m.url.trim()) {
+        errors.push(
+            "Der Spiegelserver braucht eine Adresse wie http://192.168.1.10:8080.".to_string(),
+        );
+    }
+    if !mirror_modes().iter().any(|(k, _)| *k == m.mode) {
+        errors.push(format!("Unbekannte Spiegel-Art: {}", m.mode));
+    }
+    if m.mode == "full" && is_image(cfg) {
+        errors.push(
+            "Ein vollständiger rsync-Spiegel geht nur für x86_64 – für ARM den Caching-Proxy wählen."
+                .to_string(),
+        );
+    }
+    if m.mode == "full" && !m.rsync_upstream.trim().starts_with("rsync://") {
+        errors.push("Die rsync-Quelle muss mit rsync:// beginnen.".to_string());
+    }
+    if m.port == 0 {
+        errors.push("Ungültiger Port für den Spiegelserver.".to_string());
+    }
+    if m.own_repo && !crate::mirror::own_repo_db(cfg).exists() {
+        errors.push(
+            "Das eigene Paket-Repository ist leer – bitte mindestens ein Paket hinzufügen oder es abschalten."
+                .to_string(),
+        );
+    }
+    if !m.fallback {
+        warnings.push(
+            "Ohne Ausweichquelle braucht jeder Build und jedes Update den eigenen Spiegelserver."
+                .to_string(),
+        );
+    }
+    let host = m.url.trim();
+    if host.contains("://localhost") || host.contains("://127.") {
+        warnings.push(
+            "Der Spiegel zeigt auf localhost – installierte Systeme erreichen ihn so nicht. Besser die LAN-Adresse dieses Rechners eintragen."
                 .to_string(),
         );
     }
@@ -2028,6 +2164,29 @@ mod tests {
         assert!(validate(&cfg).0.is_empty(), "{:?}", validate(&cfg).0);
         cfg.live.password_hash = "klartext".into();
         assert!(validate(&cfg).0.iter().any(|e| e.contains("Hash")));
+    }
+
+    #[test]
+    fn mirror_validation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = default_config();
+        cfg.build.project_dir = tmp.path().to_string_lossy().into_owned();
+        cfg.mirror_server.enabled = true;
+        assert!(validate(&cfg).0.iter().any(|e| e.contains("Adresse")));
+        cfg.mirror_server.url = "http://192.168.1.10:8080".into();
+        assert!(validate(&cfg).0.is_empty(), "{:?}", validate(&cfg).0);
+        cfg.mirror_server.own_repo = true;
+        assert!(validate(&cfg)
+            .0
+            .iter()
+            .any(|e| e.contains("Paket-Repository")));
+        cfg.mirror_server.own_repo = false;
+        cfg.mirror_server.mode = "full".into();
+        cfg.build.arch = "rpi".into();
+        cfg.packages.kernel = "linux-rpi".into();
+        assert!(validate(&cfg).0.iter().any(|e| e.contains("rsync")));
+        cfg.mirror_server.url = "http://localhost:8080".into();
+        assert!(validate(&cfg).1.iter().any(|w| w.contains("localhost")));
     }
 
     #[test]

@@ -559,6 +559,45 @@ enum AssetMsg {
     Done(Option<String>),
 }
 
+/// Eigenes Repo bzw. Spiegel ohne Ausweich: Der Spiegel muss beim Build erreichbar sein.
+fn mirror_ready(ctx: &Rc<Ctx>) -> bool {
+    let cfg = ctx.cfg.borrow().clone();
+    if !distro_builder_core::mirror::required_for_build(&cfg)
+        || distro_builder_core::mirror::reachable(&cfg)
+    {
+        return true;
+    }
+    let dlg = adw::AlertDialog::builder()
+        .heading("Spiegelserver nicht erreichbar")
+        .body(format!(
+            "{} antwortet nicht. Das eigene Paket-Repository (bzw. der Spiegel ohne Ausweichquelle) ist nur darüber erreichbar – der Build würde scheitern.\n\nDen eingebauten Spiegelserver jetzt starten?",
+            distro_builder_core::mirror::base_url(&cfg)
+        ))
+        .build();
+    dlg.add_response("cancel", "Abbrechen");
+    dlg.add_response("start", "Starten und bauen");
+    dlg.set_response_appearance("start", adw::ResponseAppearance::Suggested);
+    let ctx2 = ctx.clone();
+    dlg.connect_response(None, move |_, r| {
+        if r != "start" {
+            return;
+        }
+        if ctx2.mirror.borrow().is_none() {
+            crate::pages::mirror::start(&ctx2);
+        }
+        if distro_builder_core::mirror::reachable(&ctx2.cfg.borrow()) {
+            on_build(&ctx2);
+        } else {
+            ctx2.error(
+                "Spiegel weiterhin nicht erreichbar",
+                "Stimmt die Adresse unter „Repositories → Eigener Spiegelserver“ mit diesem Rechner und dem Port überein?",
+            );
+        }
+    });
+    dlg.present(Some(&ctx.window));
+    false
+}
+
 fn on_profile_only(ctx: &Rc<Ctx>) {
     let Some(pth) = prepare(ctx) else { return };
     let script = pth.script.clone();
@@ -592,6 +631,9 @@ fn on_build(ctx: &Rc<Ctx>) {
     }
     if let Some(view) = &ctx.shared.borrow().log_view {
         view.buffer().set_text("");
+    }
+    if !mirror_ready(ctx) {
+        return;
     }
     let Some(pth) = prepare(ctx) else { return };
     if let Some(grp) = &ctx.shared.borrow().result_grp {

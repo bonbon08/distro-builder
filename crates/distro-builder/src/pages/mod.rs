@@ -4,6 +4,7 @@ pub mod build;
 pub mod extras;
 pub mod general;
 pub mod installer;
+pub mod mirror;
 pub mod packages;
 pub mod repos;
 

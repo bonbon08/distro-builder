@@ -12,7 +12,11 @@ optdepends=('skopeo: Container-Images in die ISO packen'
             'docker: Alternative zu skopeo für Container-Images'
             'qemu-desktop: fertige ISO in einer VM testen'
             'edk2-ovmf: VM-Test im UEFI-Modus'
-            'xdg-utils: Ausgabeordner öffnen')
+            'xdg-utils: Ausgabeordner öffnen'
+            'arch-install-scripts: ARM64-/Raspberry-Pi-Images bauen (arch-chroot)'
+            'qemu-user-static-binfmt: ARM64-/Raspberry-Pi-Images auf x86_64 bauen'
+            'flatpak: Flatpak-Apps beim Bauen mitliefern'
+            'rsync: vollständiger Spiegel für den eigenen Spiegelserver')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 # Regenerate with `updpkgsums` once the release tarball for this version exists.
 sha256sums=('SKIP')

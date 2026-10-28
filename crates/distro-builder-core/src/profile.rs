@@ -805,11 +805,20 @@ fn walk_releng(
 
 pub fn pacman_conf(cfg: &Config) -> String {
     let r = &cfg.repos;
-    let server = if !r.mirror.trim().is_empty() {
+    let default_server = if !r.mirror.trim().is_empty() {
         format!("Server = {}", r.mirror.trim())
     } else {
         "Include = /etc/pacman.d/mirrorlist".to_string()
     };
+    // Eigener Spiegel zuerst, die bisherige Quelle bleibt auf Wunsch als Ausweich dahinter
+    let ms = &cfg.mirror_server;
+    let mut servers = Vec::new();
+    if ms.enabled {
+        servers.push(crate::mirror::server_line(cfg));
+    }
+    if !ms.enabled || ms.fallback {
+        servers.push(default_server);
+    }
     let arm = C::is_image(cfg);
     let mut out = vec![
         "# Erzeugt von Distro Builder".to_string(),
@@ -826,6 +835,15 @@ pub fn pacman_conf(cfg: &Config) -> String {
         "LocalFileSigLevel = Optional".to_string(),
         String::new(),
     ];
+    if ms.enabled && ms.own_repo {
+        out.push(format!("[{}]", cfg.general.id));
+        out.push("SigLevel = Optional TrustAll".to_string());
+        out.push(format!(
+            "Server = {}/$repo/os/$arch",
+            crate::mirror::base_url(cfg)
+        ));
+        out.push(String::new());
+    }
     for repo in r.custom.iter().filter(|r| r.first) {
         out.push(format!("[{}]", repo.name));
         out.push(format!(
@@ -859,7 +877,7 @@ pub fn pacman_conf(cfg: &Config) -> String {
     for (enabled, name) in official {
         if enabled {
             out.push(format!("[{name}]"));
-            out.push(server.clone());
+            out.extend(servers.iter().cloned());
             out.push(String::new());
         }
     }
@@ -1712,6 +1730,28 @@ mod tests {
             path.display(),
             String::from_utf8_lossy(&out.stderr)
         );
+    }
+
+    #[test]
+    fn mirror_in_pacman_conf() {
+        let mut cfg = C::default_config();
+        cfg.general.id = "meinos".into();
+        cfg.mirror_server.enabled = true;
+        cfg.mirror_server.url = "http://192.168.1.10:8080/".into();
+        cfg.mirror_server.own_repo = true;
+        let text = pacman_conf(&cfg);
+        let core = text.find("[core]").unwrap();
+        let own = text.find("[meinos]").unwrap();
+        assert!(own < core, "eigenes Repo vor den offiziellen");
+        let block = &text[core..text[core..].find("\n\n").map(|i| core + i).unwrap()];
+        assert_eq!(
+            block,
+            "[core]\nServer = http://192.168.1.10:8080/$repo/os/$arch\nInclude = /etc/pacman.d/mirrorlist"
+        );
+        cfg.mirror_server.fallback = false;
+        assert!(!pacman_conf(&cfg).contains("Include = /etc/pacman.d/mirrorlist"));
+        cfg.mirror_server.enabled = false;
+        assert!(!pacman_conf(&cfg).contains("192.168.1.10"));
     }
 
     #[test]

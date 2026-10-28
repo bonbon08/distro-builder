@@ -55,6 +55,21 @@ Erneut anstoßen: `rm ~/.local/state/<id>/distrobox.done` und neu anmelden – o
 xz-Kompression, NVIDIA-DKMS, CUDA/ROCm und große Modelle verlängern den Build deutlich. Für
 Testbuilds zstd verwenden und die Arch-Rettungswerkzeuge abschalten.
 
+## Spiegelserver
+
+**„Spiegelserver konnte nicht starten“**: Der Port ist belegt. Unter „Repositories → Eigener
+Spiegelserver“ einen anderen Port wählen und die Adresse anpassen („Dieser Rechner“).
+
+**Andere Rechner erreichen den Spiegel nicht**: Port in der Firewall freigeben
+(`sudo ufw allow 8080/tcp`) und als Adresse die LAN-IP statt `localhost` eintragen.
+
+**Build bricht mit `failed to retrieve some files` beim eigenen Repo ab**: Der Spiegel lief
+während des Builds nicht. Vor dem Bauen auf „Starten“ klicken; die Seite „Bauen“ fragt danach auch
+selbst nach.
+
+**`repo-add` nicht gefunden**: Ist Teil von `pacman`, steht also nur auf Arch-basierten
+Systemen zur Verfügung.
+
 ## Im Live-System
 
 **Kein grafischer Desktop**: Wurde unter „Pakete“ ein Desktop gewählt? Ohne Desktop startet das
@@ -106,7 +121,11 @@ journalctl -u <id>-compose@<name>
 
 ## AUR-Pakete
 
-AUR-Pakete lassen sich nicht direkt eintragen. So geht es über ein eigenes Repository:
+AUR-Pakete lassen sich nicht direkt eintragen. Am einfachsten: Paket mit `makepkg` bauen und unter
+„Repositories → Eigenes Paket-Repository“ mit **+** hinzufügen. Der eigene Spiegelserver liefert es
+dann an ISO-Build und installierte Systeme aus (siehe [Spiegelserver](spiegelserver.md#eigenes-paket-repository)).
+
+Ohne Spiegelserver geht es auch von Hand:
 
 ```bash
 mkdir -p ~/myrepo && cd ~/aur-paket && makepkg -s

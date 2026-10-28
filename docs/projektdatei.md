@@ -64,6 +64,14 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
 | `live.autologin` | `true` | Desktop/Konsole ohne Anmeldemaske |
 | `live.sudo` | `"nopasswd"` | `nopasswd` · `password` · `none`; mit Installer immer `nopasswd` |
 | `live.copytoram` | `false` | Bootparameter `copytoram` |
+| `mirror_server.enabled` | `false` | Distro nutzt den eigenen Spiegel |
+| `mirror_server.mode` | `"proxy"` | `proxy` (Caching-Proxy) · `full` (rsync, nur x86_64) |
+| `mirror_server.url` | `""` | Adresse des Spiegels, z. B. `http://192.168.1.10:8080` |
+| `mirror_server.port` | `8080` | Port des eingebauten Servers |
+| `mirror_server.upstream` | `""` | Quelle des Proxys im pacman-Format, leer = Standard der Plattform |
+| `mirror_server.rsync_upstream` | `"rsync://ftp.halifax.rwth-aachen.de/archlinux/"` | Quelle des vollständigen Spiegels |
+| `mirror_server.fallback` | `true` | offizielle Mirrors als Ausweich eintragen |
+| `mirror_server.own_repo` | `false` | eigenes Paket-Repository `[<id>]` ausliefern |
 | `flatpak.enabled` | `false` | Flatpak einrichten |
 | `flatpak.flathub` | `true` | Flathub als Quelle |
 | `flatpak.store` | `true` | Discover bzw. GNOME Software installieren |
@@ -147,6 +155,16 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
     "bootloader": "grub",
     "swap_gb": 0,
     "welcome": "Dieser Assistent installiert das System auf deine Festplatte."
+  },
+  "mirror_server": {
+    "enabled": false,
+    "mode": "proxy",
+    "url": "http://192.168.1.10:8080",
+    "port": 8080,
+    "upstream": "",
+    "rsync_upstream": "rsync://ftp.halifax.rwth-aachen.de/archlinux/",
+    "fallback": true,
+    "own_repo": false
   },
   "live": {
     "username": "live",

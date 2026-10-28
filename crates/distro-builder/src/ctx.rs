@@ -75,6 +75,12 @@ pub struct Shared {
     pub stacks_grp: Option<adw::PreferencesGroup>,
     pub stack_rows: Vec<adw::ActionRow>,
 
+    pub mirror_status: Option<adw::ActionRow>,
+    pub mirror_toggle: Option<gtk::Button>,
+    pub mirror_last: Option<adw::ActionRow>,
+    pub own_pkg_grp: Option<adw::PreferencesGroup>,
+    pub own_pkg_rows: Vec<adw::ActionRow>,
+
     pub flatpak_row: Option<adw::SwitchRow>,
     pub flatpak_custom_grp: Option<adw::PreferencesGroup>,
     pub flatpak_custom_rows: Vec<adw::ActionRow>,
@@ -123,6 +129,8 @@ pub struct Ctx {
     pub shared: RefCell<Shared>,
     pub project_path: RefCell<Option<PathBuf>>,
     pub last_iso: RefCell<Option<PathBuf>>,
+    /// Eingebauter Spiegelserver – überlebt das Neuaufbauen der Seiten
+    pub mirror: RefCell<Option<distro_builder_core::mirror::ServerHandle>>,
 
     pub window: adw::ApplicationWindow,
     pub toasts: adw::ToastOverlay,
@@ -278,6 +286,7 @@ impl Ctx {
             shared: RefCell::new(Shared::default()),
             project_path: RefCell::new(None),
             last_iso: RefCell::new(None),
+            mirror: RefCell::new(None),
             window,
             toasts,
             stack,
@@ -304,6 +313,10 @@ impl Ctx {
             let ctx2 = ctx.clone();
             ctx.window.connect_close_request(move |_| {
                 ctx2.autosave();
+                let server = ctx2.mirror.borrow_mut().take();
+                if let Some(server) = server {
+                    server.stop();
+                }
                 glib::Propagation::Proceed
             });
         }
