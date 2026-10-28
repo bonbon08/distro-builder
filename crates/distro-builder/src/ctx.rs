@@ -26,8 +26,9 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     ("repos", "Repositories", "network-server-symbolic"),
     ("packages", "Pakete", "package-x-generic-symbolic"),
     ("extras", "Container & KI", "applications-science-symbolic"),
+    ("apps", "Flatpak & Distrobox", "view-app-grid-symbolic"),
     ("installer", "Installer", "system-software-install-symbolic"),
-    ("build", "ISO bauen", "media-optical-symbolic"),
+    ("build", "Bauen", "media-optical-symbolic"),
 ];
 
 pub const LOGO_MODES: &[(&str, &str)] = &[
@@ -70,11 +71,24 @@ pub struct Shared {
     pub stacks_grp: Option<adw::PreferencesGroup>,
     pub stack_rows: Vec<adw::ActionRow>,
 
+    pub flatpak_row: Option<adw::SwitchRow>,
+    pub flatpak_custom_grp: Option<adw::PreferencesGroup>,
+    pub flatpak_custom_rows: Vec<adw::ActionRow>,
+    pub remotes_grp: Option<adw::PreferencesGroup>,
+    pub remote_rows: Vec<adw::ActionRow>,
+    pub distrobox_row: Option<adw::SwitchRow>,
+    pub boxes_grp: Option<adw::PreferencesGroup>,
+    pub box_rows: Vec<adw::ActionRow>,
+
     pub archiso_row: Option<adw::ActionRow>,
     pub archiso_btn: Option<gtk::Button>,
     pub space_row: Option<adw::ActionRow>,
     pub skopeo_row: Option<adw::ActionRow>,
     pub skopeo_btn: Option<gtk::Button>,
+    pub arm_row: Option<adw::ActionRow>,
+    pub arm_btn: Option<gtk::Button>,
+    pub flatpak_req_row: Option<adw::ActionRow>,
+    pub flatpak_btn: Option<gtk::Button>,
     pub dir_row: Option<adw::ActionRow>,
     pub profile_btn: Option<gtk::Button>,
     pub build_btn: Option<gtk::Button>,

@@ -27,8 +27,10 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     );
     ctx.shared.borrow_mut().ollama_row = Some(ollama_row);
 
+    let is_image = C::is_image(&ctx.cfg.borrow());
     let accels: Vec<(String, String)> = C::ollama_accel()
         .into_iter()
+        .filter(|(k, _)| !(is_image && matches!(*k, "cuda" | "rocm")))
         .map(|(k, v)| (k.to_string(), v.label.to_string()))
         .collect();
     ctx.combo_row(
@@ -37,7 +39,7 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         &accels,
         |cfg| cfg.ai.accel.clone(),
         |cfg, v| cfg.ai.accel = v,
-        Some("CUDA/ROCm: mehrere GB groß"),
+        Some("CUDA/ROCm: mehrere GB groß, nur x86_64"),
         false,
     );
     ctx.switch_row(

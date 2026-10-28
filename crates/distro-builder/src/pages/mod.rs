@@ -1,3 +1,4 @@
+pub mod apps;
 pub mod branding;
 pub mod build;
 pub mod extras;
@@ -17,6 +18,7 @@ pub fn build_page(ctx: &Rc<Ctx>, key: &str) -> gtk::Widget {
         "repos" => repos::page(ctx).into(),
         "packages" => packages::page(ctx).into(),
         "extras" => extras::page(ctx).into(),
+        "apps" => apps::page(ctx).into(),
         "installer" => installer::page(ctx).into(),
         "build" => build::page(ctx).into(),
         _ => unreachable!("unknown page {key}"),

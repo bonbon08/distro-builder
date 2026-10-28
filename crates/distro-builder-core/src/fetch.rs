@@ -267,6 +267,7 @@ pub fn pull_image(
     image: &str,
     dest_dir: &Path,
     log: &mut dyn FnMut(&str),
+    arch: &str,
 ) -> Result<PathBuf, FetchError> {
     fs::create_dir_all(dest_dir)?;
     let dest = dest_dir.join(image_file(image));
@@ -290,13 +291,19 @@ pub fn pull_image(
             "--override-os".into(),
             "linux".into(),
             "--override-arch".into(),
-            "amd64".into(),
+            arch.into(),
             format!("docker://{reference}"),
             format!("docker-archive:{}:{reference}", tmp.display()),
         ]]
     } else {
         vec![
-            vec![tool.to_string(), "pull".into(), reference.clone()],
+            vec![
+                tool.to_string(),
+                "pull".into(),
+                "--platform".into(),
+                format!("linux/{arch}"),
+                reference.clone(),
+            ],
             vec![
                 tool.to_string(),
                 "save".into(),
@@ -408,7 +415,13 @@ pub fn prepare_assets(
         link_tree(&store, &air.join("var/lib/ollama/models"))?;
     }
     if !images.is_empty() {
-        let idir = cache.join("images");
+        // getrennte Caches pro Architektur, damit ein Wechsel keine falschen Images mitbringt
+        let oci_arch = C::oci_arch(cfg);
+        let idir = if oci_arch == "amd64" {
+            cache.join("images")
+        } else {
+            cache.join(format!("images-{oci_arch}"))
+        };
         let mut wanted = std::collections::HashSet::new();
         for img in &images {
             if let Some(p) = progress.as_mut() {
@@ -417,7 +430,7 @@ pub fn prepare_assets(
                     &format!("Container-Image {img}"),
                 );
             }
-            let dest = pull_image(img, &idir, log)?;
+            let dest = pull_image(img, &idir, log, oci_arch)?;
             wanted.insert(dest.file_name().unwrap().to_os_string());
             step += 1;
         }

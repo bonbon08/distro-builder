@@ -2,9 +2,14 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 
+use distro_builder_core::config as C;
+
 use crate::ctx::Ctx;
 
 pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
+    if C::is_image(&ctx.cfg.borrow()) {
+        return image_page(ctx);
+    }
     let page = adw::PreferencesPage::new();
     let grp = adw::PreferencesGroup::builder()
         .title("Grafischer Installer")
@@ -110,42 +115,7 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .description("Vorauswahl im Installer, gilt auch für die Tastatur im Live-System")
         .build();
     page.add(&d);
-    let locales: Vec<(String, String)> =
-        ctx.locales.iter().map(|l| (l.clone(), l.clone())).collect();
-    ctx.combo_row(
-        &d,
-        "Sprache",
-        &locales,
-        |cfg| cfg.installer.locale.clone(),
-        |cfg, v| cfg.installer.locale = v,
-        None,
-        true,
-    );
-    let timezones: Vec<(String, String)> = ctx
-        .timezones
-        .iter()
-        .map(|l| (l.clone(), l.clone()))
-        .collect();
-    ctx.combo_row(
-        &d,
-        "Zeitzone",
-        &timezones,
-        |cfg| cfg.installer.timezone.clone(),
-        |cfg, v| cfg.installer.timezone = v,
-        None,
-        true,
-    );
-    let layouts: Vec<(String, String)> =
-        ctx.layouts.iter().map(|l| (l.clone(), l.clone())).collect();
-    ctx.combo_row(
-        &d,
-        "Tastaturlayout",
-        &layouts,
-        |cfg| cfg.installer.keyboard.clone(),
-        |cfg, v| cfg.installer.keyboard = v,
-        None,
-        true,
-    );
+    region_rows(ctx, &d);
     let filesystems = vec![
         ("ext4".to_string(), "ext4".to_string()),
         (
@@ -175,5 +145,122 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         false,
     );
 
+    page
+}
+
+/// Sprache, Zeitzone und Tastatur (Installer-Vorgabe bzw. Einstellung des Images).
+fn region_rows(ctx: &Rc<Ctx>, d: &adw::PreferencesGroup) {
+    let locales: Vec<(String, String)> =
+        ctx.locales.iter().map(|l| (l.clone(), l.clone())).collect();
+    ctx.combo_row(
+        d,
+        "Sprache",
+        &locales,
+        |cfg| cfg.installer.locale.clone(),
+        |cfg, v| cfg.installer.locale = v,
+        None,
+        true,
+    );
+    let timezones: Vec<(String, String)> = ctx
+        .timezones
+        .iter()
+        .map(|l| (l.clone(), l.clone()))
+        .collect();
+    ctx.combo_row(
+        d,
+        "Zeitzone",
+        &timezones,
+        |cfg| cfg.installer.timezone.clone(),
+        |cfg, v| cfg.installer.timezone = v,
+        None,
+        true,
+    );
+    let layouts: Vec<(String, String)> =
+        ctx.layouts.iter().map(|l| (l.clone(), l.clone())).collect();
+    ctx.combo_row(
+        d,
+        "Tastaturlayout",
+        &layouts,
+        |cfg| cfg.installer.keyboard.clone(),
+        |cfg, v| cfg.installer.keyboard = v,
+        None,
+        true,
+    );
+}
+
+/// ARM/Raspberry Pi: kein Installer, sondern ein fertig eingerichtetes Image.
+fn image_page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
+    let page = adw::PreferencesPage::new();
+    let label = C::arch_info(&ctx.cfg.borrow()).label;
+    let grp = adw::PreferencesGroup::builder()
+        .title("Fertiges System")
+        .description(format!(
+            "Für {label} gibt es keinen Installer: Das Image enthält ein fertig eingerichtetes System. Beim ersten Start wächst die Partition auf die Größe der SD-Karte bzw. des Datenträgers."
+        ))
+        .build();
+    page.add(&grp);
+    ctx.entry_row(
+        &grp,
+        "Benutzername",
+        |cfg| cfg.image.username.clone(),
+        |cfg, v| cfg.image.username = v,
+        None,
+    );
+    let pw = adw::PasswordEntryRow::builder()
+        .title("Startpasswort")
+        .text(ctx.cfg.borrow().image.password.clone())
+        .build();
+    {
+        let ctx2 = ctx.clone();
+        pw.connect_changed(move |r| {
+            ctx2.cfg.borrow_mut().image.password = r.text().to_string();
+            ctx2.changed();
+        });
+    }
+    grp.add(&pw);
+    ctx.switch_row(
+        &grp,
+        "Passwort beim ersten Anmelden ändern",
+        None,
+        |cfg| cfg.image.expire_password,
+        |cfg, v| cfg.image.expire_password = v,
+    );
+    ctx.switch_row(
+        &grp,
+        "Automatisch anmelden",
+        Some("Nur mit Desktop-Umgebung"),
+        |cfg| cfg.image.autologin,
+        |cfg, v| cfg.image.autologin = v,
+    );
+    ctx.switch_row(
+        &grp,
+        "zram-Swap aktivieren",
+        Some("Komprimierter Swap im RAM"),
+        |cfg| cfg.installer.zram,
+        |cfg, v| cfg.installer.zram = v,
+    );
+    let size = adw::SpinRow::new(
+        Some(&gtk::Adjustment::new(8.0, 3.0, 256.0, 1.0, 1.0, 0.0)),
+        1.0,
+        0,
+    );
+    size.set_title("Image-Größe (GB)");
+    size.set_subtitle("Platz für System, Modelle und Apps – wächst beim ersten Start automatisch");
+    size.set_value(ctx.cfg.borrow().image.size_gb as f64);
+    {
+        let ctx2 = ctx.clone();
+        size.connect_value_notify(move |r| {
+            ctx2.cfg.borrow_mut().image.size_gb = r.value() as u32;
+            ctx2.changed();
+        });
+    }
+    grp.add(&size);
+
+    let d = adw::PreferencesGroup::builder()
+        .title("Region")
+        .description("Sprache, Zeitzone und Tastatur des Systems")
+        .build();
+    page.add(&d);
+    region_rows(ctx, &d);
     page
 }
