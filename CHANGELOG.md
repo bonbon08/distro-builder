@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Behoben: Absturz (Stack Overflow) beim Bauen, sobald KI-Modelle vorinstalliert werden – die Download-Puffer lagen auf dem Stack des Hintergrund-Threads
 - Zielplattform wählbar: x86_64 (ISO mit Installer), ARM64 mit UEFI und Raspberry Pi 4/400/5 (fertiges Disk-Image auf Basis von Arch Linux ARM, gebaut per QEMU-Emulation)
 - Flatpak: Flathub und eigene Quellen, Apps beim Bauen mitliefern oder beim ersten Start laden, Discover/GNOME Software
 - Distrobox: Container mit Ubuntu, Debian, Fedora, openSUSE, Alpine oder eigenen Images, eingerichtet beim ersten Anmelden
