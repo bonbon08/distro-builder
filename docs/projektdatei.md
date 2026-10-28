@@ -31,7 +31,7 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
 | `repos.extra_testing` | `false` |  |
 | `repos.mirror` | `""` | eigener `Server =`-Eintrag statt Mirrorliste |
 | `repos.custom` | `[]` | Liste von `{name, server, siglevel, first}` |
-| `packages.kernel` | `"linux"` | `linux` · `linux-lts` · `linux-zen` · `linux-hardened`; ARM: `linux-aarch64`, Raspberry Pi: `linux-rpi` · `linux-rpi-16k` |
+| `packages.kernel` | `"linux"` | `linux` · `linux-lts` · `linux-zen` · `linux-hardened` |
 | `packages.desktop` | `"kde"` | `none` · `kde` · `gnome` · `xfce` · `cinnamon` · `lxqt` |
 | `packages.presets` | `["audio", "firefox", "fonts", "utils"]` | Sammlungen: `audio`, `bluetooth`, `printing`, `firefox`, `chromium`, `office`, `media`, `fonts`, `flatpak`, `dev`, `utils`, `gaming` |
 | `packages.custom` | `""` | eigene Pakete, durch Leerzeichen/Zeilen getrennt |
@@ -59,22 +59,8 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
 | `ai.models` | `[]` | Modellnamen, z. B. `llama3.2:3b` |
 | `ai.expose` | `false` | `OLLAMA_HOST=0.0.0.0` |
 | `ai.dev` | `false` | PyTorch, Jupyter & Co. |
-| `flatpak.enabled` | `false` | Flatpak einrichten |
-| `flatpak.flathub` | `true` | Flathub als Quelle |
-| `flatpak.store` | `true` | Discover bzw. GNOME Software installieren |
-| `flatpak.preload` | `true` | Apps beim Bauen herunterladen und mitliefern |
-| `flatpak.remotes` | `[]` | eigene Quellen: Liste von `{name, url}` (URL einer `.flatpakrepo`-Datei) |
-| `flatpak.apps` | `[]` | App-IDs, z. B. `org.gimp.GIMP` oder `quelle:app.id` |
-| `distrobox.enabled` | `false` | Distrobox installieren |
-| `distrobox.boxes` | `[]` | Liste von `{name, image, packages, export}` |
-| `image.username` | `"user"` | nur ARM: Benutzer im fertigen Image |
-| `image.password` | `"user"` | nur ARM: Startpasswort |
-| `image.expire_password` | `true` | nur ARM: Passwort beim ersten Anmelden ändern |
-| `image.autologin` | `false` | nur ARM: automatisch anmelden |
-| `image.size_gb` | `8` | nur ARM: Größe der Image-Datei |
-| `build.arch` | `"x86_64"` | `x86_64` (ISO) · `aarch64` (ARM64-Image) · `rpi` (Raspberry-Pi-Image) |
 | `build.project_dir` | `"~/DistroBuilder"` | Basisordner, Projekt liegt in `<project_dir>/<id>` |
-| `build.compression` | `"zstd"` | `zstd` (schnell) · `xz` (klein); gilt für SquashFS bzw. das ARM-Image |
+| `build.compression` | `"zstd"` | `zstd` (schnell) · `xz` (klein) |
 
 ## Beispiel
 
@@ -166,37 +152,7 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
     "expose": false,
     "dev": false
   },
-  "flatpak": {
-    "enabled": true,
-    "flathub": true,
-    "store": true,
-    "preload": true,
-    "remotes": [],
-    "apps": [
-      "org.mozilla.firefox",
-      "com.github.tchx84.Flatseal"
-    ]
-  },
-  "distrobox": {
-    "enabled": true,
-    "boxes": [
-      {
-        "name": "ubuntu",
-        "image": "docker.io/library/ubuntu:24.04",
-        "packages": "build-essential git",
-        "export": ""
-      }
-    ]
-  },
-  "image": {
-    "username": "user",
-    "password": "user",
-    "expire_password": true,
-    "autologin": false,
-    "size_gb": 8
-  },
   "build": {
-    "arch": "x86_64",
     "project_dir": "~/DistroBuilder",
     "compression": "zstd"
   }
@@ -205,12 +161,13 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
 
 ## Ohne Oberfläche bauen
 
-```python
-from distrobuilder import config, profile, fetch
+```rust
+use distro_builder_core::{config, fetch, profile};
 
-cfg = config.load("nebulaos.json")
-pth = profile.generate(cfg)            # erzeugt ~/DistroBuilder/<id>/profile und build.sh (ISO oder ARM-Image)
-fetch.prepare_assets(cfg, pth, print)  # Modelle und Images
+let cfg = config::load(std::path::Path::new("nebulaos.json"))?;
+let bins = profile::locate_installer_binaries();
+let pth = profile::generate(&cfg, |l| println!("{l}"), std::path::Path::new(profile::RELENG), bins.as_ref())?;
+fetch::prepare_assets(&cfg, &pth, &mut |l: &str| println!("{l}"), None)?; // Modelle und Images
 ```
 
 ```bash

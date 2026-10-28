@@ -1,12 +1,13 @@
 # Änderungen
 
-## Unveröffentlicht
+## Unreleased
 
-- Zielplattform wählbar: x86_64 (ISO mit Installer), ARM64 mit UEFI und Raspberry Pi 4/400/5 (fertiges Disk-Image auf Basis von Arch Linux ARM, gebaut per QEMU-Emulation)
-- Flatpak: Flathub und eigene Quellen, Apps beim Bauen mitliefern oder beim ersten Start laden, Discover/GNOME Software
-- Distrobox: Container mit Ubuntu, Debian, Fedora, openSUSE, Alpine oder eigenen Images, eingerichtet beim ersten Anmelden
-- Container-Images werden passend zur Plattform geladen (amd64/arm64)
-- Seite „ISO bauen“ heißt jetzt „Bauen“
+- Komplett in Rust neu geschrieben (vorher Python/PyGObject): Cargo-Workspace mit vier Crates
+  (`distro-builder-core` als gemeinsame Bibliothek für Konfiguration/Profil-Erzeugung/Downloads,
+  `distro-builder` als GTK4/libadwaita-Oberfläche, `distro-installer` und `distro-installer-backend`
+  als grafischer Installer samt Root-Backend im Live-System). Funktionsumfang unverändert.
+- Build/Install laufen jetzt über `cargo build --workspace` statt `python3`/PyGObject; `PKGBUILD` und
+  CI entsprechend angepasst.
 
 ## 0.1.0 – 2026-10-27
 
