@@ -58,11 +58,16 @@ Testbuilds zstd verwenden und die Arch-Rettungswerkzeuge abschalten.
 ## Im Live-System
 
 **Kein grafischer Desktop**: Wurde unter „Pakete“ ein Desktop gewählt? Ohne Desktop startet das
-System in die Konsole (root-Autologin wie beim Arch-ISO).
+System in die Konsole und meldet sich als Live-Benutzer an (root über `sudo -i`).
 
 **Installer startet nicht**
 Im Terminal `distro-installer` ausführen, dann siehst du die Fehlermeldung. Das Backend läuft per
-`sudo -n`; der Benutzer `live` darf das ohne Passwort.
+`sudo -n`; der Live-Benutzer darf das ohne Passwort. Deshalb ist mit Installer immer
+„sudo ohne Passwort“ eingestellt.
+
+**Live-System fragt nach einem Passwort**
+Unter „Live & Installer“ ist ein Live-Passwort gesetzt oder die automatische Anmeldung aus. Das
+Passwort lässt sich dort neu setzen oder entfernen; danach die ISO neu bauen.
 
 **NVIDIA: schwarzer Bildschirm**
 Im Bootmenü mit `e` (systemd-boot) bzw. `Tab` (syslinux) den Parameter `nomodeset` anhängen.

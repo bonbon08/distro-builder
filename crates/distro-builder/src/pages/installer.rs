@@ -11,33 +11,164 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         return image_page(ctx);
     }
     let page = adw::PreferencesPage::new();
+
+    // ---- Art des Mediums
+    let mode_grp = adw::PreferencesGroup::builder()
+        .title("Art des Mediums")
+        .description(
+            "„Nur Live-System“ startet direkt vom USB-Stick ohne Installer – z. B. für eine Rettungs-, Kiosk-, Präsentations- oder Gaming-ISO.",
+        )
+        .build();
+    page.add(&mode_grp);
+    let modes = vec![
+        (
+            "installer".to_string(),
+            "Live-System mit grafischem Installer".to_string(),
+        ),
+        ("live".to_string(), "Nur Live-System".to_string()),
+    ];
+    let mode_row = ctx.combo_row(
+        &mode_grp,
+        "Medium",
+        &modes,
+        |cfg| {
+            if cfg.installer.enabled {
+                "installer".into()
+            } else {
+                "live".into()
+            }
+        },
+        |cfg, v| {
+            cfg.installer.enabled = v == "installer";
+            // Der Installer läuft per „sudo -n“ – dafür muss sudo ohne Passwort gehen
+            if cfg.installer.enabled {
+                cfg.live.sudo = "nopasswd".into();
+            }
+        },
+        None,
+        false,
+    );
+    ctx.switch_row(
+        &mode_grp,
+        "zram-Swap aktivieren",
+        Some("Komprimierter Swap im RAM"),
+        |cfg| cfg.installer.zram,
+        |cfg, v| cfg.installer.zram = v,
+    );
+
+    // ---- Live-Benutzer
+    let live_grp = adw::PreferencesGroup::builder()
+        .title("Live-Benutzer")
+        .description(
+            "Mit diesem Konto startet das Live-System. Das Passwort wird nur als SHA-512-Hash gespeichert – weder im Projekt noch in der ISO steht es im Klartext.",
+        )
+        .build();
+    page.add(&live_grp);
+    ctx.entry_row(
+        &live_grp,
+        "Benutzername",
+        |cfg| cfg.live.username.clone(),
+        |cfg, v| cfg.live.username = v,
+        None,
+    );
+    let pw_status = adw::ActionRow::builder()
+        .title("Passwort")
+        .css_classes(["property"])
+        .build();
+    let pw_clear = gtk::Button::builder()
+        .label("Entfernen")
+        .valign(gtk::Align::Center)
+        .css_classes(["flat"])
+        .build();
+    pw_status.add_suffix(&pw_clear);
+    let update_status: Rc<dyn Fn()> = {
+        let ctx2 = ctx.clone();
+        let pw_status = pw_status.clone();
+        let pw_clear = pw_clear.clone();
+        Rc::new(move || {
+            let set = !ctx2.cfg.borrow().live.password_hash.is_empty();
+            pw_status.set_subtitle(if set {
+                "gesetzt (gespeichert als SHA-512-Hash)"
+            } else {
+                "keins – Anmeldung ohne Passwort"
+            });
+            pw_clear.set_visible(set);
+        })
+    };
+    update_status();
+    let pw_entry = adw::PasswordEntryRow::builder()
+        .title("Neues Passwort setzen")
+        .show_apply_button(true)
+        .build();
+    {
+        let ctx2 = ctx.clone();
+        let update_status = update_status.clone();
+        pw_entry.connect_apply(move |r| {
+            let text = r.text().to_string();
+            if text.is_empty() {
+                ctx2.toast("Kein Passwort eingegeben – zum Entfernen „Entfernen“ nutzen");
+                return;
+            }
+            ctx2.cfg.borrow_mut().live.password_hash =
+                distro_builder_core::passwd::hash_password(&text);
+            r.set_text("");
+            update_status();
+            ctx2.toast("Live-Passwort gesetzt");
+            ctx2.changed();
+        });
+    }
+    {
+        let ctx2 = ctx.clone();
+        let update_status = update_status.clone();
+        pw_clear.connect_clicked(move |_| {
+            ctx2.cfg.borrow_mut().live.password_hash.clear();
+            update_status();
+            ctx2.changed();
+        });
+    }
+    live_grp.add(&pw_entry);
+    live_grp.add(&pw_status);
+    let sudo_modes: Vec<(String, String)> = C::sudo_modes()
+        .into_iter()
+        .map(|(k, l)| (k.to_string(), l.to_string()))
+        .collect();
+    let sudo_row = ctx.combo_row(
+        &live_grp,
+        "Administratorrechte",
+        &sudo_modes,
+        |cfg| cfg.live.sudo.clone(),
+        |cfg, v| cfg.live.sudo = v,
+        Some("Mit Installer immer „sudo ohne Passwort“"),
+        false,
+    );
+    ctx.switch_row(
+        &live_grp,
+        "Automatisch anmelden",
+        Some("Desktop bzw. Konsole startet ohne Anmeldemaske"),
+        |cfg| cfg.live.autologin,
+        |cfg, v| cfg.live.autologin = v,
+    );
+    ctx.switch_row(
+        &live_grp,
+        "Komplett in den RAM laden (copytoram)",
+        Some("Startet langsamer, danach kann der USB-Stick entfernt werden"),
+        |cfg| cfg.live.copytoram,
+        |cfg, v| cfg.live.copytoram = v,
+    );
+
     let grp = adw::PreferencesGroup::builder()
         .title("Grafischer Installer")
         .description(
-            "Ein eigener GTK-Installer: Festplatte wählen, Benutzer anlegen, fertig. Er installiert die Pakete aus dem Internet (pacstrap) und übernimmt dein Branding. Benötigt eine Desktop-Umgebung.",
+            "Ein eigener GTK-Installer: Festplatte wählen, Benutzer anlegen, fertig. Er kopiert das System offline von der ISO oder installiert es aus dem Internet und übernimmt dein Branding. Benötigt eine Desktop-Umgebung.",
         )
         .build();
     page.add(&grp);
-    ctx.switch_row(
-        &grp,
-        "Installer einbinden",
-        None,
-        |cfg| cfg.installer.enabled,
-        |cfg, v| cfg.installer.enabled = v,
-    );
     ctx.switch_row(
         &grp,
         "Installer beim Start des Live-Systems öffnen",
         None,
         |cfg| cfg.installer.autostart,
         |cfg, v| cfg.installer.autostart = v,
-    );
-    ctx.switch_row(
-        &grp,
-        "zram-Swap aktivieren",
-        Some("Komprimierter Swap im RAM"),
-        |cfg| cfg.installer.zram,
-        |cfg, v| cfg.installer.zram = v,
     );
 
     let src = adw::PreferencesGroup::builder()
@@ -145,6 +276,27 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         false,
     );
 
+    let installer_groups = [grp, src, w];
+    let sync: Rc<dyn Fn()> = {
+        let ctx2 = ctx.clone();
+        Rc::new(move || {
+            let with_installer = ctx2.cfg.borrow().installer.enabled;
+            for g in &installer_groups {
+                g.set_visible(with_installer);
+            }
+            // sudo-Wahl nur ohne Installer frei (der Installer braucht sudo ohne Passwort)
+            sudo_row.set_sensitive(!with_installer);
+            let idx = C::sudo_modes()
+                .iter()
+                .position(|(k, _)| *k == ctx2.cfg.borrow().live.sudo)
+                .unwrap_or(0);
+            if sudo_row.selected() as usize != idx {
+                sudo_row.set_selected(idx as u32);
+            }
+        })
+    };
+    sync();
+    mode_row.connect_selected_notify(move |_| sync());
     page
 }
 

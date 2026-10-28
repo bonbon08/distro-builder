@@ -2,7 +2,8 @@
 
 Der Installer ist eine GTK4/libadwaita-App in der ISO. Er wird eingebunden, wenn unter
 **Installer** „Installer einbinden“ aktiv ist **und** ein Desktop gewählt wurde. Ohne Desktop
-steht im Live-System nur `archinstall` aus dem Arch-ISO bereit.
+steht im Live-System nur `archinstall` aus dem Arch-ISO bereit. Mit „Nur Live-System“ entfällt
+der Installer ganz (siehe [Live-System](live-system.md)).
 
 > ⚠️ Der Installer **löscht alle Festplatten vollständig**, die du als Systemplatte oder als
 > weitere Platte auswählst. Vorhandene Partitionen lassen sich nicht weiterverwenden, und eine

@@ -284,6 +284,40 @@ pub struct Distrobox {
     pub boxes: Vec<DistroboxBox>,
 }
 
+/// Live-System der ISO: Benutzer, Passwort und Startverhalten.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LiveCfg {
+    pub username: String,
+    /// SHA-512-crypt-Hash (`$6$…`); leer = ohne Passwort. Nie Klartext.
+    pub password_hash: String,
+    pub autologin: bool,
+    /// nopasswd | password | none
+    pub sudo: String,
+    /// Live-System beim Start komplett in den RAM laden (Stick kann danach entfernt werden)
+    pub copytoram: bool,
+}
+
+impl Default for LiveCfg {
+    fn default() -> Self {
+        Self {
+            username: "live".into(),
+            password_hash: String::new(),
+            autologin: true,
+            sudo: "nopasswd".into(),
+            copytoram: false,
+        }
+    }
+}
+
+pub fn sudo_modes() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("nopasswd", "sudo ohne Passwort"),
+        ("password", "sudo mit Passwort"),
+        ("none", "kein sudo"),
+    ]
+}
+
 /// Nur für ARM/Raspberry Pi: fertiges System statt ISO mit Installer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -342,6 +376,7 @@ pub struct Config {
     pub repos: Repos,
     pub packages: Packages,
     pub installer: InstallerCfg,
+    pub live: LiveCfg,
     pub containers: Containers,
     pub ai: Ai,
     pub flatpak: Flatpak,
@@ -1385,6 +1420,11 @@ pub fn live_packages(cfg: &Config, releng_packages: &[String]) -> Vec<String> {
     dedup(base)
 }
 
+/// ISO ohne Installer: Das Live-System ist das fertige Produkt.
+pub fn live_only(cfg: &Config) -> bool {
+    !is_image(cfg) && !cfg.installer.enabled
+}
+
 pub fn installer_active(cfg: &Config) -> bool {
     !is_image(cfg) && cfg.installer.enabled && cfg.packages.desktop != "none"
 }
@@ -1481,10 +1521,55 @@ pub fn validate(cfg: &Config) -> (Vec<String>, Vec<String>) {
     if cfg.repos.core_testing || cfg.repos.extra_testing {
         warnings.push("Testing-Repositories können instabil sein.".to_string());
     }
+    validate_live(cfg, &mut errors, &mut warnings);
     validate_arch(cfg, &mut errors, &mut warnings);
     validate_flatpak(cfg, &mut errors, &mut warnings);
     validate_distrobox(cfg, &mut errors, &mut warnings);
     (errors, warnings)
+}
+
+fn validate_live(cfg: &Config, errors: &mut Vec<String>, warnings: &mut Vec<String>) {
+    if is_image(cfg) {
+        return;
+    }
+    let l = &cfg.live;
+    if !user_re().is_match(&l.username) || l.username == "root" {
+        errors.push("Ungültiger Live-Benutzername (a-z, 0-9, _ und -, nicht root).".to_string());
+    }
+    if !sudo_modes().iter().any(|(k, _)| *k == l.sudo) {
+        errors.push(format!("Unbekannte sudo-Einstellung: {}", l.sudo));
+    }
+    if !l.password_hash.is_empty() && !crate::passwd::looks_like_hash(&l.password_hash) {
+        errors.push(
+            "Das Live-Passwort ist kein gültiger Hash – bitte in der Oberfläche neu setzen."
+                .to_string(),
+        );
+    }
+    if installer_active(cfg) && l.sudo != "nopasswd" {
+        errors.push(
+            "Der grafische Installer braucht „sudo ohne Passwort“ für den Live-Benutzer – oder „Nur Live-System“ wählen."
+                .to_string(),
+        );
+    }
+    if l.sudo == "password" && l.password_hash.is_empty() {
+        errors.push("„sudo mit Passwort“ braucht ein Live-Passwort.".to_string());
+    }
+    if live_only(cfg)
+        && ((cfg.containers.engine != "none"
+            && (!cfg.containers.stacks.is_empty() || !container_images(cfg).is_empty()))
+            || (distrobox_active(cfg) && !cfg.distrobox.boxes.is_empty()))
+    {
+        warnings.push(
+            "Container-Apps, vorgeladene Images und Distrobox-Container werden erst nach einer Installation eingerichtet – im reinen Live-System stehen nur Docker/Podman selbst bereit."
+                .to_string(),
+        );
+    }
+    if !l.autologin && l.password_hash.is_empty() {
+        warnings.push(
+            "Ohne automatische Anmeldung und ohne Passwort meldet man sich mit dem Benutzernamen ohne Passwort an."
+                .to_string(),
+        );
+    }
 }
 
 fn validate_arch(cfg: &Config, errors: &mut Vec<String>, warnings: &mut Vec<String>) {
@@ -1922,6 +2007,27 @@ mod tests {
         let dup = cfg.distrobox.boxes[0].clone();
         cfg.distrobox.boxes.push(dup);
         assert!(validate(&cfg).0.iter().any(|e| e.contains("eindeutig")));
+    }
+
+    #[test]
+    fn live_validation() {
+        let mut cfg = default_config();
+        cfg.live.username = "root".into();
+        assert!(validate(&cfg)
+            .0
+            .iter()
+            .any(|e| e.contains("Live-Benutzername")));
+        cfg.live.username = "gast".into();
+        cfg.live.sudo = "password".into();
+        let errors = validate(&cfg).0;
+        assert!(errors.iter().any(|e| e.contains("Installer")));
+        assert!(errors.iter().any(|e| e.contains("Live-Passwort")));
+        // Nur Live-System: sudo mit Passwort ist erlaubt, sobald ein Passwort gesetzt ist
+        cfg.installer.enabled = false;
+        cfg.live.password_hash = crate::passwd::hash_password("geheim");
+        assert!(validate(&cfg).0.is_empty(), "{:?}", validate(&cfg).0);
+        cfg.live.password_hash = "klartext".into();
+        assert!(validate(&cfg).0.iter().any(|e| e.contains("Hash")));
     }
 
     #[test]

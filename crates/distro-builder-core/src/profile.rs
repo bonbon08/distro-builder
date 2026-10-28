@@ -550,8 +550,14 @@ fn build_apps(cfg: &Config, root: &Path) -> std::io::Result<Vec<String>> {
         write_file(
             &root.join("etc/systemd/system").join(format!("{gid}-flatpak-setup.service")),
             &format!(
-                "[Unit]\nDescription={}: Flatpak-Quellen und Apps einrichten\nWants=network-online.target\nAfter=network-online.target\nConditionPathExists=!/var/lib/{gid}/flatpak-setup.done\n{NOT_LIVE}\n\n[Service]\nType=oneshot\nExecStart=/usr/local/bin/{gid}-flatpak-setup\nTimeoutStartSec=0\n\n[Install]\nWantedBy=multi-user.target\n",
-                g.name
+                "[Unit]\nDescription={}: Flatpak-Quellen und Apps einrichten\nWants=network-online.target\nAfter=network-online.target\nConditionPathExists=!/var/lib/{gid}/flatpak-setup.done\n{}\n[Service]\nType=oneshot\nExecStart=/usr/local/bin/{gid}-flatpak-setup\nTimeoutStartSec=0\n\n[Install]\nWantedBy=multi-user.target\n",
+                g.name,
+                // Reines Live-System: keine spätere Installation, also auch live einrichten
+                if C::live_only(cfg) {
+                    String::new()
+                } else {
+                    format!("{NOT_LIVE}\n")
+                }
             ),
         )?;
     }
@@ -951,6 +957,50 @@ fn rebrand_boot(profile: &Path, name: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+pub fn live_setup_script(cfg: &Config) -> String {
+    let l = &cfg.live;
+    let flag = |b: bool| if b { "1" } else { "0" };
+    template("live-setup.sh", cfg)
+        .replace("@@LIVEUSER@@", &l.username)
+        .replace("@@LIVEHASH@@", &l.password_hash)
+        .replace("@@SUDO@@", &l.sudo)
+        .replace("@@AUTOLOGIN@@", flag(l.autologin))
+        .replace("@@FASTFETCH@@", flag(cfg.branding.fastfetch_on_terminal))
+}
+
+/// Hängt einen Kernel-Parameter an alle Live-Booteinträge an (UEFI, GRUB, Syslinux; ohne PXE).
+fn add_boot_param(profile: &Path, param: &str) -> std::io::Result<()> {
+    for sub in ["efiboot", "grub", "syslinux"] {
+        for file in walkdir(&profile.join(sub)) {
+            let name = file.file_name().map(|n| n.to_string_lossy().into_owned());
+            if name.as_deref().is_none_or(|n| n.contains("pxe")) {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&file) else {
+                continue;
+            };
+            let new: Vec<String> = text
+                .lines()
+                .map(|line| {
+                    if line.contains("archisobasedir=") && !line.contains(param) {
+                        format!("{line} {param}")
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect();
+            let mut new = new.join("\n");
+            if text.ends_with('\n') {
+                new.push('\n');
+            }
+            if new != text {
+                fs::write(&file, new)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn walkdir(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let Ok(entries) = fs::read_dir(dir) else {
@@ -1218,31 +1268,79 @@ pub fn generate(
             &systemd.join("display-manager.service"),
         )?;
         let session = desktop.session.unwrap_or("");
-        for (rel, content) in autologin_files(dm, session, "live") {
-            write_file(&air.join(rel), &content)?;
+        if cfg.live.autologin {
+            for (rel, content) in autologin_files(dm, session, &cfg.live.username) {
+                write_file(&air.join(rel), &content)?;
+            }
         }
+    }
 
-        let script = template("live-setup.sh", cfg).replace(
-            "@@FASTFETCH@@",
-            if cfg.branding.fastfetch_on_terminal {
-                "1"
-            } else {
-                "0"
-            },
-        );
-        write_file(&air.join("usr/local/bin/live-setup"), &script)?;
-        perms.push((
-            "/usr/local/bin/live-setup".to_string(),
-            "0:0:755".to_string(),
-        ));
+    // Live-Benutzer (mit und ohne Desktop)
+    let live = &cfg.live;
+    log(&format!(
+        "Live-Benutzer: {} ({}, {})",
+        live.username,
+        if live.password_hash.is_empty() {
+            "ohne Passwort"
+        } else {
+            "mit Passwort"
+        },
+        C::sudo_modes()
+            .into_iter()
+            .find(|(k, _)| *k == live.sudo)
+            .map(|(_, l)| l)
+            .unwrap_or("sudo ohne Passwort")
+    ));
+    write_file(
+        &air.join("usr/local/bin/live-setup"),
+        &live_setup_script(cfg),
+    )?;
+    perms.push((
+        "/usr/local/bin/live-setup".to_string(),
+        "0:0:755".to_string(),
+    ));
+    write_file(
+        &systemd.join("live-setup.service"),
+        &template("live-setup.service", cfg),
+    )?;
+    symlink(
+        "/etc/systemd/system/live-setup.service",
+        &systemd.join("multi-user.target.wants/live-setup.service"),
+    )?;
+    // Konsole: statt root automatisch als Live-Benutzer anmelden (oder Anmeldemaske)
+    let getty = systemd.join("getty@tty1.service.d/autologin.conf");
+    if live.autologin {
         write_file(
-            &systemd.join("live-setup.service"),
-            &template("live-setup.service", cfg),
+            &getty,
+            &format!(
+                "[Service]\nExecStart=\nExecStart=-/usr/bin/agetty --noreset --noclear --autologin {} - ${{TERM}}\n",
+                live.username
+            ),
         )?;
+    } else {
+        remove_path(&getty);
+    }
+    if C::live_only(cfg) && cfg.flatpak.enabled {
         symlink(
-            "/etc/systemd/system/live-setup.service",
-            &systemd.join("multi-user.target.wants/live-setup.service"),
+            &format!("/etc/systemd/system/{gid}-flatpak-setup.service"),
+            &systemd.join(format!(
+                "multi-user.target.wants/{gid}-flatpak-setup.service"
+            )),
         )?;
+        if flatpak_preload(cfg) {
+            // Mitgelieferte Flatpaks direkt ins SquashFS: Der Hook läuft während mkarchiso im
+            // chroot (Dateirechte bleiben erhalten) und wird danach von releng wieder entfernt.
+            write_file(
+                &air.join("etc/pacman.d/hooks").join(format!("zz-{gid}-flatpak-live.hook")),
+                &format!(
+                    "# remove from airootfs!\n[Trigger]\nOperation = Install\nType = Package\nTarget = flatpak\n\n[Action]\nDescription = Flatpak-Apps ins Live-System übernehmen...\nWhen = PostTransaction\nExec = /bin/sh -c 'T=/var/lib/{gid}/flatpak.tar; [ -f \"$T\" ] && mkdir -p /var/lib/flatpak && tar -xpf \"$T\" -C /var/lib/flatpak && rm -f \"$T\"; exit 0'\n"
+                ),
+            )?;
+        }
+    }
+    if live.copytoram {
+        add_boot_param(profile, "copytoram")?;
+        log("Live-System wird beim Start in den RAM geladen (copytoram)");
     }
 
     // Installer
@@ -1645,6 +1743,59 @@ mod tests {
         assert!(ini.contains("exported_apps=\"code\""));
     }
 
+    #[test]
+    fn live_setup_template() {
+        let mut cfg = C::default_config();
+        cfg.live.username = "gast".into();
+        cfg.live.password_hash = crate::passwd::sha512_crypt("geheim", "salz", None);
+        cfg.live.sudo = "password".into();
+        let script = live_setup_script(&cfg);
+        assert!(!script.contains("@@"), "unersetzter Platzhalter");
+        assert!(script.contains("U='gast'"));
+        assert!(script.contains(&format!("HASH='{}'", cfg.live.password_hash)));
+        assert!(!script.contains("geheim"), "Klartext-Passwort im Skript");
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("live-setup");
+        fs::write(&path, &script).unwrap();
+        check_bash(&path);
+    }
+
+    #[test]
+    fn boot_param_only_on_live_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prof = tmp.path();
+        write_file(
+            &prof.join("efiboot/loader/entries/01-archiso-linux.conf"),
+            "title x\nlinux /a\noptions archisobasedir=arch archisosearchfilename=x\n",
+        )
+        .unwrap();
+        write_file(
+            &prof.join("efiboot/loader/entries/03-memtest.conf"),
+            "title memtest\nefi /memtest.efi\n",
+        )
+        .unwrap();
+        write_file(
+            &prof.join("syslinux/archiso_pxe-linux.cfg"),
+            "APPEND archisobasedir=arch ip=dhcp\n",
+        )
+        .unwrap();
+        add_boot_param(prof, "copytoram").unwrap();
+        add_boot_param(prof, "copytoram").unwrap();
+        let entry =
+            fs::read_to_string(prof.join("efiboot/loader/entries/01-archiso-linux.conf")).unwrap();
+        assert_eq!(entry.matches("copytoram").count(), 1);
+        assert!(
+            !fs::read_to_string(prof.join("efiboot/loader/entries/03-memtest.conf"))
+                .unwrap()
+                .contains("copytoram")
+        );
+        assert!(
+            !fs::read_to_string(prof.join("syslinux/archiso_pxe-linux.cfg"))
+                .unwrap()
+                .contains("copytoram")
+        );
+    }
+
     /// ARM-Images brauchen keine releng-Vorlage – läuft in jedem `cargo test`.
     #[test]
     fn image_platforms() {
@@ -1705,6 +1856,52 @@ mod tests {
             }
             assert!(!air.join("etc/distro-installer.json").exists());
         }
+    }
+
+    #[test]
+    #[ignore = "requires archiso releng template; run with --include-ignored on Arch Linux"]
+    fn live_only_iso() {
+        if !releng_dir().is_dir() {
+            eprintln!("skipping: no releng at {}", releng_dir().display());
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = make_cfg(tmp.path());
+        cfg.installer.enabled = false;
+        cfg.live.username = "gast".into();
+        cfg.live.password_hash = crate::passwd::hash_password("geheim");
+        cfg.live.sudo = "password".into();
+        cfg.live.autologin = false;
+        cfg.live.copytoram = true;
+        cfg.flatpak.enabled = true;
+        cfg.flatpak.apps = vec!["org.mozilla.firefox".into()];
+        let pth = generate(&cfg, |_| {}, &releng_dir(), None).unwrap();
+        let prof = &pth.profile;
+        let air = prof.join("airootfs");
+        // Flatpaks laufen im reinen Live-System: Hook fürs SquashFS + aktivierter Dienst
+        let hook =
+            fs::read_to_string(air.join("etc/pacman.d/hooks/zz-testos-flatpak-live.hook")).unwrap();
+        assert!(hook.starts_with("# remove from airootfs!"));
+        assert!(fs::symlink_metadata(
+            air.join("etc/systemd/system/multi-user.target.wants/testos-flatpak-setup.service")
+        )
+        .is_ok());
+        let unit = fs::read_to_string(air.join("etc/systemd/system/testos-flatpak-setup.service"))
+            .unwrap();
+        assert!(!unit.contains("archisobasedir"), "{unit}");
+        assert!(!air.join("etc/distro-installer.json").exists());
+        assert!(!air.join("usr/local/bin/distro-installer").exists());
+        assert!(!air.join("etc/sddm.conf.d/autologin.conf").exists());
+        assert!(!air
+            .join("etc/systemd/system/getty@tty1.service.d/autologin.conf")
+            .exists());
+        let setup = fs::read_to_string(air.join("usr/local/bin/live-setup")).unwrap();
+        assert!(setup.contains("U='gast'") && setup.contains("SUDO='password'"));
+        let efi =
+            fs::read_to_string(prof.join("efiboot/loader/entries/01-archiso-linux.conf")).unwrap();
+        assert!(efi.contains("copytoram"));
+        let def = fs::read_to_string(prof.join("profiledef.sh")).unwrap();
+        assert!(def.contains("/usr/local/bin/live-setup"));
     }
 
     #[test]
@@ -1771,6 +1968,13 @@ mod tests {
             let pth = generate(&cfg, |_| {}, &releng_dir(), bins.as_ref()).unwrap();
             let air = pth.profile.join("airootfs");
             assert!(air.join("usr/share/testos/os-release").is_file());
+            // Live-Benutzer gibt es immer, auch ohne Desktop
+            assert!(air.join("usr/local/bin/live-setup").is_file());
+            let getty = fs::read_to_string(
+                air.join("etc/systemd/system/getty@tty1.service.d/autologin.conf"),
+            )
+            .unwrap();
+            assert!(getty.contains("--autologin live"), "{getty}");
             let has_installer = key != "none";
             assert_eq!(
                 air.join("etc/distro-installer.json").is_file(),

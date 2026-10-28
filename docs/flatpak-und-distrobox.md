@@ -31,7 +31,8 @@ etwa `kde` → `https://distribute.kde.org/kdeapps.flatpakrepo`. Apps daraus tr�
 Schlägt das Vorladen fehl (kein `flatpak` auf dem Build-Rechner, kein Netz), bricht der Build nicht
 ab. Die Apps werden dann beim ersten Start geladen.
 
-Im Live-System der ISO sind die Flatpaks noch nicht eingerichtet, erst nach der Installation.
+Im Live-System einer ISO mit Installer sind die Flatpaks noch nicht eingerichtet, erst nach der
+Installation. Bei „Nur Live-System“ sind sie direkt im Live-System nutzbar (siehe [Live-System](live-system.md)).
 
 ```bash
 flatpak list

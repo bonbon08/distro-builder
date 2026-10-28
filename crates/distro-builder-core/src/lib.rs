@@ -4,6 +4,7 @@
 pub mod config;
 pub mod fetch;
 pub mod installer_conf;
+pub mod passwd;
 pub mod profile;
 
 pub use config::Config;

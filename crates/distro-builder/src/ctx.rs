@@ -27,7 +27,11 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     ("packages", "Pakete", "package-x-generic-symbolic"),
     ("extras", "Container & KI", "applications-science-symbolic"),
     ("apps", "Flatpak & Distrobox", "view-app-grid-symbolic"),
-    ("installer", "Installer", "system-software-install-symbolic"),
+    (
+        "installer",
+        "Live & Installer",
+        "system-software-install-symbolic",
+    ),
     ("build", "Bauen", "media-optical-symbolic"),
 ];
 

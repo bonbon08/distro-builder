@@ -37,7 +37,7 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
 | `packages.custom` | `""` | eigene Pakete, durch Leerzeichen/Zeilen getrennt |
 | `packages.rescue_tools` | `true` | releng-Paketliste statt Minimalliste im Live-System |
 | `packages.gpu` | `"mesa"` | `mesa` · `amd` · `intel` · `nvidia` |
-| `installer.enabled` | `true` | Installer einbinden (braucht Desktop) |
+| `installer.enabled` | `true` | `true` = Live-System mit Installer (braucht Desktop), `false` = nur Live-System |
 | `installer.autostart` | `true` | Installer im Live-System automatisch öffnen |
 | `installer.locale` | `"de_DE.UTF-8"` | Vorgabe |
 | `installer.timezone` | `"Europe/Berlin"` | Vorgabe |
@@ -59,6 +59,11 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
 | `ai.models` | `[]` | Modellnamen, z. B. `llama3.2:3b` |
 | `ai.expose` | `false` | `OLLAMA_HOST=0.0.0.0` |
 | `ai.dev` | `false` | PyTorch, Jupyter & Co. |
+| `live.username` | `"live"` | Benutzer des Live-Systems |
+| `live.password_hash` | `""` | SHA-512-crypt-Hash (`$6$…`), leer = ohne Passwort; nie Klartext |
+| `live.autologin` | `true` | Desktop/Konsole ohne Anmeldemaske |
+| `live.sudo` | `"nopasswd"` | `nopasswd` · `password` · `none`; mit Installer immer `nopasswd` |
+| `live.copytoram` | `false` | Bootparameter `copytoram` |
 | `flatpak.enabled` | `false` | Flatpak einrichten |
 | `flatpak.flathub` | `true` | Flathub als Quelle |
 | `flatpak.store` | `true` | Discover bzw. GNOME Software installieren |
@@ -142,6 +147,13 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
     "bootloader": "grub",
     "swap_gb": 0,
     "welcome": "Dieser Assistent installiert das System auf deine Festplatte."
+  },
+  "live": {
+    "username": "live",
+    "password_hash": "",
+    "autologin": true,
+    "sudo": "nopasswd",
+    "copytoram": false
   },
   "containers": {
     "engine": "docker",

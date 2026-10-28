@@ -7,6 +7,10 @@
 - Distrobox: Container mit Ubuntu, Debian, Fedora, openSUSE, Alpine oder eigenen Images, eingerichtet beim ersten Anmelden
 - Container-Images werden passend zur Plattform geladen (amd64/arm64)
 - Seite „ISO bauen“ heißt jetzt „Bauen“
+- „Nur Live-System“: ISO ohne Installer, z. B. für Rettungs-, Kiosk- oder Gaming-Sticks
+- Live-Benutzer frei wählbar: Name, Passwort (nur als SHA-512-crypt-Hash gespeichert), sudo mit/ohne Passwort oder gar nicht, Autologin für Desktop und Konsole, `copytoram`
+- Flatpak-Apps funktionieren im reinen Live-System (direkt im SquashFS)
+- Seite „Installer“ heißt jetzt „Live & Installer“
 
 - Komplett in Rust neu geschrieben (vorher Python/PyGObject): Cargo-Workspace mit vier Crates
   (`distro-builder-core` als gemeinsame Bibliothek für Konfiguration/Profil-Erzeugung/Downloads,

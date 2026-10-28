@@ -80,9 +80,10 @@ Diese Dateien landen zweimal im Profil: direkt in `airootfs/` und als Kopie in
 
 | Pfad | Zweck |
 |---|---|
-| `/usr/local/bin/live-setup` + `live-setup.service` | legt beim Booten den Benutzer `live` an (ohne Passwort, sudo ohne Passwort) |
+| `/usr/local/bin/live-setup` + `live-setup.service` | legt beim Booten den Live-Benutzer an (Name, Passwort-Hash und sudo laut [Live-System](live-system.md)) |
+| `/etc/systemd/system/getty@tty1.service.d/autologin.conf` | Konsolen-Autologin als Live-Benutzer (fehlt, wenn Autologin aus ist) |
 | `/etc/systemd/system/display-manager.service` | Link auf sddm, gdm oder lightdm |
-| `/etc/sddm.conf.d/autologin.conf` bzw. gdm/lightdm | automatische Anmeldung als `live` |
+| `/etc/sddm.conf.d/autologin.conf` bzw. gdm/lightdm | automatische Anmeldung als Live-Benutzer |
 | `/usr/local/bin/distro-installer`, `/usr/local/lib/distro-installer/distro-installer-backend` | der Installer (vorkompilierte Binärdateien, keine Vorlagen) |
 | `/etc/distro-installer.json` | Konfiguration für den Installer, siehe unten |
 | `/usr/share/applications/distro-installer.desktop` (+ Autostart) | Starter |

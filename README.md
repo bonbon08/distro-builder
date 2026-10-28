@@ -15,6 +15,7 @@ grafischen Installer** für PCs oder ein **fertiges Image für ARM64 und den Ras
 - **Plattformen:** x86_64 (ISO mit Installer), ARM64 mit UEFI und Raspberry Pi 4/400/5 (fertiges Disk-Image auf Basis von Arch Linux ARM)
 - **Flatpak:** Apps aus Flathub oder eigenen Flatpak-Quellen, auf Wunsch direkt mitgeliefert, dazu Discover bzw. GNOME Software
 - **Distrobox:** Ubuntu, Fedora, Debian & Co. als Container, die beim ersten Anmelden fertig eingerichtet werden
+- **Live-System:** wahlweise **ohne Installer** (Rettungs-, Kiosk- oder Gaming-ISO), eigener Benutzername und Passwort (nur als SHA-512-Hash gespeichert), sudo-Regel, Autologin, `copytoram`
 - **Grafischer Installer:** Installation **offline direkt von der ISO**, mehrere Festplatten (`/home`, Datenlaufwerke, btrfs-RAID 1), **LUKS2-Verschlüsselung**, ext4 oder btrfs, GRUB oder systemd-boot
 - **Bauen:** ein Klick, Fortschritt und Log, danach die ISO direkt in QEMU testen
 
@@ -76,7 +77,7 @@ Projekte speicherst du mit Strg+S als JSON. Der letzte Stand wird beim Schließe
 | **Pakete** | Kernel, Desktop, Grafiktreiber, Rettungswerkzeuge, Sammlungen, eigene Pakete, Suche, Prüfung |
 | **Container & KI** | Ollama, Beschleunigung, Modelle mit Größenprüfung, Entwicklungsumgebung, Docker/Podman, Images, Compose-Stacks |
 | **Flatpak & Distrobox** | Flatpak an/aus, Flathub, App-Store, Vorladen, Apps, eigene Quellen, Distrobox-Container |
-| **Installer** | An/aus, Autostart im Live-System, Standardwerte (Quelle, Verschlüsselung, Bootloader, Swap, Sprache, Zeitzone, Tastatur, Dateisystem). Bei ARM: Benutzer, Passwort, Autologin, Image-Größe, Region |
+| **Live & Installer** | Medium (mit Installer oder nur Live-System), Live-Benutzer (Name, Passwort, sudo, Autologin, copytoram), Installer-Autostart, Standardwerte (Quelle, Verschlüsselung, Bootloader, Swap, Sprache, Zeitzone, Tastatur, Dateisystem). Bei ARM: Benutzer, Passwort, Autologin, Image-Größe, Region |
 | **Bauen** | Voraussetzungen, Projektordner, Kompression, Build, Log, Ergebnis |
 
 <p>
@@ -109,6 +110,7 @@ Mehr dazu in [docs/architektur.md](docs/architektur.md).
 ## Dokumentation
 
 - [Architektur und erzeugte Dateien](docs/architektur.md)
+- [Live-System](docs/live-system.md): nur Live-System, Live-Benutzer und Passwort, copytoram
 - [Der grafische Installer](docs/installer.md): Partitionierung, Verschlüsselung, Offline-Installation
 - [KI und Container](docs/ki-und-container.md): Ollama, Modelle, Docker/Podman, Compose-Stacks
 - [Flatpak und Distrobox](docs/flatpak-und-distrobox.md): Apps aus anderen Quellen, Container mit anderen Distributionen
@@ -137,6 +139,7 @@ crates/
     src/config.rs                  Standardwerte, Presets, Paketlisten, Validierung
     src/profile.rs                 Erzeugt das archiso-Profil bzw. das Profil für ARM-Images
     src/fetch.rs                   Lädt Ollama-Modelle und Container-Images
+    src/passwd.rs                  SHA-512-crypt für Passwort-Hashes
     src/installer_conf.rs          Geteiltes JSON-Schema für /etc/distro-installer.json
     templates/                     Shellskripte für ISO (Branding, Live-Setup) und ARM-Image (Build, Setup)
   distro-builder/                   GTK4/libadwaita-Oberfläche (Binary „distro-builder“)
