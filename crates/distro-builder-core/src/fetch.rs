@@ -118,6 +118,24 @@ pub fn model_size(name: &str) -> Result<u64, FetchError> {
 }
 
 /// Lädt ein Modell im Ollama-Speicherformat nach `<store>/{manifests,blobs}`.
+const DOWNLOAD_BUF: usize = 1024 * 1024;
+const HASH_BUF: usize = 4 * 1024 * 1024;
+
+/// `sha256:<hex>` einer Datei, gelesen in Blöcken (Puffer auf dem Heap).
+fn sha256_file(path: &Path) -> std::io::Result<String> {
+    let mut hasher = Sha256::new();
+    let mut file = fs::File::open(path)?;
+    let mut buf = vec![0u8; HASH_BUF];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("sha256:{:x}", hasher.finalize()))
+}
+
 pub fn pull_model(
     name: &str,
     store: &Path,
@@ -179,7 +197,8 @@ pub fn pull_model(
         let start = if partial && have > 0 { have } else { 0 };
         let mut got = start;
         let mut reader = resp.into_reader();
-        let mut buf = [0u8; 1024 * 1024];
+        // Puffer auf dem Heap: Der Download läuft in einem Hintergrund-Thread mit nur 2 MiB Stack
+        let mut buf = vec![0u8; DOWNLOAD_BUF];
         loop {
             let n = reader.read(&mut buf).map_err(FetchError::Io)?;
             if n == 0 {
@@ -199,18 +218,7 @@ pub fn pull_model(
             }
         }
         drop(file);
-        let mut hasher = Sha256::new();
-        let mut verify = fs::File::open(&part)?;
-        let mut vbuf = [0u8; 4 * 1024 * 1024];
-        loop {
-            let n = verify.read(&mut vbuf)?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&vbuf[..n]);
-        }
-        let digest_hex = format!("sha256:{:x}", hasher.finalize());
-        if digest_hex != b.digest {
+        if sha256_file(&part)? != b.digest {
             let _ = fs::remove_file(&part);
             return Err(FetchError::msg(format!(
                 "Prüfsumme von {name} stimmt nicht – bitte erneut bauen."
@@ -465,6 +473,24 @@ pub fn estimate_sizes(cfg: &Config) -> (u64, Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression: Der Modell-Download läuft im Hintergrund-Thread der Oberfläche. Mit den
+    /// früheren 1-/4-MiB-Puffern auf dem Stack stürzte er dort ab (Stack Overflow, SIGABRT).
+    #[test]
+    fn hashing_works_on_small_thread_stack() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("blob");
+        let data: Vec<u8> = (0..(HASH_BUF + 12345)).map(|i| (i % 251) as u8).collect();
+        fs::write(&path, &data).unwrap();
+        let expected = format!("sha256:{:x}", Sha256::digest(&data));
+        let digest = std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(move || sha256_file(&path).unwrap())
+            .unwrap()
+            .join()
+            .expect("Thread darf nicht abstürzen");
+        assert_eq!(digest, expected);
+    }
 
     #[test]
     fn test_parse_model() {
