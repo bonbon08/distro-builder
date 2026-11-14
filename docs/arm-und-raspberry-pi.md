@@ -7,6 +7,7 @@ Unter **Allgemein → Zielplattform** wählst du, für welche Hardware gebaut wi
 | **x86_64** (Standard) | bootfähige ISO mit Live-System und grafischem Installer | Arch Linux, archiso |
 | **ARM64 (UEFI)** | fertig installiertes Disk-Image (`.img.zst` bzw. `.img.xz`), GPT, GRUB | Arch Linux ARM, `ArchLinuxARM-aarch64-latest` |
 | **Raspberry Pi 4/400/5** | fertig installiertes SD-Karten-Image, MBR, Raspberry-Pi-Firmware | Arch Linux ARM, `ArchLinuxARM-rpi-aarch64-latest` |
+| **CMF Phone 1 (Nothing)** | `userdata`-Image (`.simg`) und Boot-Images für fastboot, siehe [CMF Phone 1](cmf-phone1.md) | Arch Linux ARM über [cmf-phone1-arch](https://github.com/bonbon08/cmf-phone1-arch) |
 
 Für ARM gibt es keinen Installer: Das Image enthält ein komplett eingerichtetes System. Du
 schreibst es auf eine SD-Karte, einen USB-Stick oder eine SSD und startest direkt.

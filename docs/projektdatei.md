@@ -31,12 +31,13 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
 | `repos.extra_testing` | `false` |  |
 | `repos.mirror` | `""` | eigener `Server =`-Eintrag statt Mirrorliste |
 | `repos.custom` | `[]` | Liste von `{name, server, siglevel, first}` |
-| `packages.kernel` | `"linux"` | `linux` · `linux-lts` · `linux-zen` · `linux-hardened`; ARM: `linux-aarch64`, Raspberry Pi: `linux-rpi` · `linux-rpi-16k` |
-| `packages.desktop` | `"kde"` | `none` · `kde` · `gnome` · `xfce` · `cinnamon` · `lxqt` |
+| `packages.kernel` | `"linux"` | `linux` · `linux-lts` · `linux-zen` · `linux-hardened`; ARM: `linux-aarch64`, Raspberry Pi: `linux-rpi` · `linux-rpi-16k`; CMF Phone 1: `tetris-6.1` (aus cmf-phone1-arch) |
+| `packages.desktop` | `"kde"` | `none` · `kde` · `gnome` · `xfce` · `cinnamon` · `lxqt` · `nothing`; CMF Phone 1: `nothing` · `phosh` · `gnome` (Desktop-Profil, RDP) · `none` (Server-Profil) |
 | `packages.presets` | `["audio", "firefox", "fonts", "utils"]` | Sammlungen: `audio`, `bluetooth`, `printing`, `firefox`, `chromium`, `office`, `media`, `fonts`, `flatpak`, `dev`, `utils`, `gaming` |
 | `packages.custom` | `""` | eigene Pakete, durch Leerzeichen/Zeilen getrennt |
 | `packages.rescue_tools` | `true` | releng-Paketliste statt Minimalliste im Live-System |
 | `packages.gpu` | `"mesa"` | `mesa` · `amd` · `intel` · `nvidia` |
+| `packages.nothing_src` | `""` | Nothing-Desktop: lokaler Checkout von [Nothing_Wayland](https://github.com/bonbon08/Nothing_Wayland); leer = von GitHub laden |
 | `installer.enabled` | `true` | `true` = Live-System mit Installer (braucht Desktop), `false` = nur Live-System |
 | `installer.autostart` | `true` | Installer im Live-System automatisch öffnen |
 | `installer.locale` | `"de_DE.UTF-8"` | Vorgabe |
@@ -85,9 +86,10 @@ Oberfläche automatisch in `~/.config/distro-builder/autosave.json`.
 | `image.expire_password` | `true` | nur ARM: Passwort beim ersten Anmelden ändern |
 | `image.autologin` | `false` | nur ARM: automatisch anmelden |
 | `image.size_gb` | `8` | nur ARM: Größe der Image-Datei |
-| `build.arch` | `"x86_64"` | `x86_64` (ISO) · `aarch64` (ARM64-Image) · `rpi` (Raspberry-Pi-Image) |
+| `build.arch` | `"x86_64"` | `x86_64` (ISO) · `aarch64` (ARM64-Image) · `rpi` (Raspberry-Pi-Image) · `cmf-phone1` (CMF Phone 1) |
 | `build.project_dir` | `"~/DistroBuilder"` | Basisordner, Projekt liegt in `<project_dir>/<id>` |
 | `build.compression` | `"zstd"` | `zstd` (schnell) · `xz` (klein); gilt für SquashFS bzw. das ARM-Image |
+| `build.phone_repo` | `""` | CMF Phone 1: lokaler Checkout von [cmf-phone1-arch](https://github.com/bonbon08/cmf-phone1-arch); leer = nach `<projekt>/cache` klonen |
 
 ## Beispiel
 

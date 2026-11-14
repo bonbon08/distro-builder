@@ -55,13 +55,46 @@ const BUILD_STAGES: &[(&str, f64, &str)] = &[
         "Bootloader wird eingerichtet",
     ),
     ("==> Komprimiere Image", 0.90, "Image wird komprimiert"),
+    // CMF Phone 1 (templates/phone-build.sh)
+    ("==> Hole cmf-phone1-arch", 0.01, "cmf-phone1-arch wird geladen"),
+    ("==> Kernel-Quellen von Nothing", 0.03, "Kernel-Quellen werden geladen"),
+    (
+        "==> Baue Kernel und Module",
+        0.05,
+        "Kernel wird gebaut (dauert lange)",
+    ),
+    ("==> Baue Boot-Images", 0.20, "Boot-Images werden gebaut"),
+    (
+        "==> Baue das Grundsystem",
+        0.25,
+        "Grundsystem wird gebaut (Emulation, dauert)",
+    ),
+    (
+        "==> Übernehme Branding und Einstellungen",
+        0.60,
+        "Branding und Einstellungen",
+    ),
+    ("==> Erzeuge Flash-Dateien", 0.95, "Flash-Dateien werden erzeugt"),
 ];
 
-const IMAGE_SUFFIXES: &[&str] = &[".iso", ".img", ".img.zst", ".img.xz"];
+const IMAGE_SUFFIXES: &[&str] = &[".iso", ".img", ".img.zst", ".img.xz", ".simg"];
 const ARM_TOOLS: &[&str] = &[
     "arch-install-scripts",
     "qemu-user-static",
     "qemu-user-static-binfmt",
+];
+/// CMF Phone 1: zusätzlich alles, was cmf-phone1-arch zum Bauen von Kernel und Boot-Images braucht
+const PHONE_TOOLS: &[&str] = &[
+    "arch-install-scripts",
+    "qemu-user-static",
+    "qemu-user-static-binfmt",
+    "android-tools",
+    "erofs-utils",
+    "lz4",
+    "cpio",
+    "git",
+    "base-devel",
+    "bc",
 ];
 
 fn is_build_output(p: &Path) -> bool {
@@ -73,11 +106,15 @@ fn is_build_output(p: &Path) -> bool {
 }
 
 /// arch-chroot und QEMU-Emulation für aarch64 (oder ein ARM-Rechner).
-fn arm_tools_ready() -> bool {
+fn arm_tools_ready(phone: bool) -> bool {
     let emulated = std::env::consts::ARCH == "aarch64"
         || Path::new("/proc/sys/fs/binfmt_misc/qemu-aarch64").exists()
         || Path::new("/usr/lib/binfmt.d/qemu-aarch64-static.conf").exists();
-    which("arch-chroot") && emulated
+    let phone_ok = !phone
+        || ["img2simg", "mkbootimg", "fastboot", "fsck.erofs", "lz4", "cpio", "git", "make", "bc"]
+            .iter()
+            .all(|t| which(t));
+    which("arch-chroot") && emulated && phone_ok
 }
 
 pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
@@ -125,7 +162,10 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         .build();
     {
         let ctx2 = ctx.clone();
-        arm_btn.connect_clicked(move |_| install_pkg(&ctx2, ARM_TOOLS));
+        arm_btn.connect_clicked(move |_| {
+            let phone = C::is_phone(&ctx2.cfg.borrow());
+            install_pkg(&ctx2, if phone { PHONE_TOOLS } else { ARM_TOOLS })
+        });
     }
     arm_row.add_suffix(&arm_btn);
     req.add(&arm_row);
@@ -317,11 +357,19 @@ pub fn refresh_build_info(ctx: &Rc<Ctx>) {
     }
     let is_image = C::is_image(&cfg);
     archiso_row.set_visible(!is_image);
-    let arm_ok = arm_tools_ready();
+    let phone = C::is_phone(&cfg);
+    let arm_ok = arm_tools_ready(phone);
     if let Some(row) = &shared.arm_row {
         row.set_visible(is_image);
+        row.set_title(if phone {
+            "Telefon-Image bauen"
+        } else {
+            "ARM-Image bauen"
+        });
         row.set_subtitle(if arm_ok {
             "\u{2714} bereit"
+        } else if phone {
+            "\u{2718} arch-install-scripts, QEMU-Emulation, android-tools, erofs-utils, lz4, cpio, git oder base-devel fehlen"
         } else {
             "\u{2718} arch-install-scripts und QEMU-Emulation (qemu-user-static-binfmt) fehlen"
         });
@@ -615,10 +663,10 @@ fn on_profile_only(ctx: &Rc<Ctx>) {
 
 fn on_build(ctx: &Rc<Ctx>) {
     if C::is_image(&ctx.cfg.borrow()) {
-        if !arm_tools_ready() {
+        if !arm_tools_ready(C::is_phone(&ctx.cfg.borrow())) {
             ctx.error(
                 "Werkzeuge fehlen",
-                "Für ARM-Images werden arch-install-scripts und die QEMU-Emulation benötigt (Button „Installieren“ oben).",
+                "Für ARM-Images werden arch-install-scripts und die QEMU-Emulation benötigt, für das CMF Phone 1 außerdem android-tools, erofs-utils, lz4, cpio, git und base-devel (Button „Installieren“ oben).",
             );
             return;
         }

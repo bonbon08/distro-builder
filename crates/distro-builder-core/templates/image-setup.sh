@@ -8,16 +8,37 @@ echo "==> Paketschlüssel werden eingerichtet"
 pacman-key --init
 pacman-key --populate archlinuxarm
 
-# Kernel der Plattform tauschen, falls ein anderer gewählt ist (Kernel schließen sich gegenseitig aus)
-for k in linux-aarch64 linux-rpi linux-rpi-16k uboot-raspberrypi; do
-  if [ "$k" != "$KERNEL" ] && pacman -Q "$k" &>/dev/null; then
-    echo "Entferne $k"
-    pacman -Rdd --noconfirm "$k"
-  fi
-done
+PHONE=0; [ "$PLATFORM" = cmf-phone1 ] && PHONE=1
+
+# Kernel der Plattform tauschen, falls ein anderer gewählt ist (Kernel schließen sich gegenseitig aus).
+# Das Telefon startet seinen Kernel von boot_b, im Image liegt keiner.
+if [ "$PHONE" = 0 ]; then
+  for k in linux-aarch64 linux-rpi linux-rpi-16k uboot-raspberrypi; do
+    if [ "$k" != "$KERNEL" ] && pacman -Q "$k" &>/dev/null; then
+      echo "Entferne $k"
+      pacman -Rdd --noconfirm "$k"
+    fi
+  done
+fi
 
 echo "==> Pakete werden installiert"
 pacman -Syu --noconfirm --needed - < /root/packages.txt
+
+if [ -d /root/nothing-de-src ]; then
+  echo "==> Baue nothing-de aus den Quellen (unter Emulation dauert das)"
+  pacman -S --noconfirm --needed --asdeps base-devel git meson ninja wayland-protocols
+  B=/var/tmp/nothing-de-build
+  rm -rf "$B"
+  useradd -r -M -d "$B" -s /bin/bash nothingbuild
+  mv /root/nothing-de-src "$B"
+  chown -R nothingbuild: "$B"
+  runuser -u nothingbuild -- env HOME="$B" bash -c 'cd "$HOME" && makepkg -f --noconfirm --nocheck'
+  pacman -U --noconfirm "$B"/nothing-de-[0-9]*.pkg.tar.*
+  userdel nothingbuild
+  rm -rf "$B"
+  ORPHANS=$(pacman -Qdtq || true)
+  [ -n "$ORPHANS" ] && pacman -Rns --noconfirm $ORPHANS
+fi
 
 echo "==> System wird konfiguriert"
 for loc in "$LOCALE" en_US.UTF-8; do
@@ -28,8 +49,6 @@ locale-gen
 ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
 chmod 440 /etc/sudoers.d/10-wheel
 
-echo "==> Benutzer $USERNAME wird angelegt"
-userdel -r alarm 2>/dev/null || true
 if [ "$FASTFETCH" = 1 ] && ! grep -q fastfetch /etc/skel/.bashrc 2>/dev/null; then
   printf '\n# Systeminfo beim Start\n[[ $- == *i* ]] && command -v fastfetch >/dev/null && fastfetch\n' >> /etc/skel/.bashrc
 fi
@@ -37,7 +56,19 @@ GRP=""
 for g in wheel audio video storage network lp input docker render ollama; do
   getent group "$g" >/dev/null && GRP="$GRP,$g"
 done
-useradd -m -G "${GRP#,}" -s /bin/bash -c "$NAME" "$USERNAME"
+if [ "$PHONE" = 1 ]; then
+  # Die Dienste von cmf-phone1-arch setzen den Benutzer alarm (UID 1000) voraus
+  echo "==> Benutzer $USERNAME wird eingerichtet"
+  usermod -a -G "${GRP#,}" -c "$NAME" "$USERNAME"
+  if [ "$FASTFETCH" = 1 ] && ! grep -q fastfetch "/home/$USERNAME/.bashrc" 2>/dev/null; then
+    printf '\n# Systeminfo beim Start\n[[ $- == *i* ]] && command -v fastfetch >/dev/null && fastfetch\n' >> "/home/$USERNAME/.bashrc"
+    chown 1000:1000 "/home/$USERNAME/.bashrc"
+  fi
+else
+  echo "==> Benutzer $USERNAME wird angelegt"
+  userdel -r alarm 2>/dev/null || true
+  useradd -m -G "${GRP#,}" -s /bin/bash -c "$NAME" "$USERNAME"
+fi
 printf '%s:%s\n' "$USERNAME" "$PASSWORD" | chpasswd
 if [ "$AUTOLOGIN" = 1 ]; then
   groupadd -rf autologin
@@ -48,13 +79,14 @@ fi
 passwd -l root >/dev/null
 
 echo "==> Dienste werden aktiviert"
-# NetworkManager übernimmt das Netzwerk
-systemctl disable systemd-networkd.service systemd-networkd.socket 2>/dev/null || true
+# NetworkManager übernimmt das Netzwerk (das Telefon braucht systemd-networkd für USB)
+[ "$PHONE" = 0 ] && { systemctl disable systemd-networkd.service systemd-networkd.socket 2>/dev/null || true; }
 for svc in "${SERVICES[@]}"; do
   systemctl enable "$svc" || echo "WARNUNG: Dienst $svc konnte nicht aktiviert werden"
 done
 [ -x "/usr/local/bin/$GID-apply-branding" ] && "/usr/local/bin/$GID-apply-branding"
 
+if [ "$PHONE" = 0 ]; then
 cat > /etc/fstab <<EOF
 # Erzeugt von Distro Builder
 UUID=$ROOT_UUID  /      ext4  rw,relatime  0 1
@@ -83,6 +115,7 @@ menuentry "$NAME" {
   initrd /$INITRD
 }
 EOF
+fi
 fi
 
 echo "==> Aufräumen"

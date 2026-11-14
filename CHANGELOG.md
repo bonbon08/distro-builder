@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Neuer Desktop **Nothing** ([Nothing_Wayland](https://github.com/bonbon08/Nothing_Wayland)): `nothing-de` wird beim Bauen aus den Quellen gebaut (ISO: auf dem Rechner in ein lokales Repo, ARM: im Image), Anmeldung über SDDM; der Installer installiert damit nur von der ISO
+- Neue Plattform **CMF Phone 1**: baut mit [cmf-phone1-arch](https://github.com/bonbon08/cmf-phone1-arch) Kernel, Boot-Images und Grundsystem und spielt Branding, Pakete und Einstellungen ein; heraus kommen `userdata`-Image, Boot-Images, `flash.sh` und `zweite-stufe.sh`. Oberflächen: Nothing-Shell, Phosh, GNOME über RDP oder Server
 - Behoben: Absturz (Stack Overflow) beim Bauen, sobald KI-Modelle vorinstalliert werden – die Download-Puffer lagen auf dem Stack des Hintergrund-Threads
 - Zielplattform wählbar: x86_64 (ISO mit Installer), ARM64 mit UEFI und Raspberry Pi 4/400/5 (fertiges Disk-Image auf Basis von Arch Linux ARM, gebaut per QEMU-Emulation)
 - Flatpak: Flathub und eigene Quellen, Apps beim Bauen mitliefern oder beim ersten Start laden, Discover/GNOME Software

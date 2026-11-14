@@ -833,8 +833,12 @@ pub fn pacman_conf(cfg: &Config) -> String {
         "ParallelDownloads = 5".to_string(),
         "SigLevel    = Required DatabaseOptional".to_string(),
         "LocalFileSigLevel = Optional".to_string(),
-        String::new(),
     ];
+    // Der Kernel des Telefons hat kein Landlock – pacmans Download-Sandbox scheitert dort
+    if C::is_phone(cfg) {
+        out.push("DisableSandbox".to_string());
+    }
+    out.push(String::new());
     if ms.enabled && ms.own_repo {
         out.push(format!("[{}]", cfg.general.id));
         out.push("SigLevel = Optional TrustAll".to_string());
@@ -897,6 +901,67 @@ pub fn pacman_conf(cfg: &Config) -> String {
     out.join("\n")
 }
 
+/// Lokales Repo für Pakete, die der Build aus den Quellen baut (nothing-de).
+fn local_repo_dir(cfg: &Config) -> PathBuf {
+    paths(cfg).base.join("cache/localrepo")
+}
+
+fn local_repo_name(cfg: &Config) -> String {
+    format!("{}-local", cfg.general.id)
+}
+
+/// pacman.conf für mkarchiso: wie [`pacman_conf`], dazu das lokale Repo des Builds.
+/// Ins Live-System kommt es nicht – dort gibt es den Pfad nicht.
+pub fn pacman_conf_build(cfg: &Config) -> String {
+    let conf = pacman_conf(cfg);
+    if C::local_packages(cfg).is_empty() {
+        return conf;
+    }
+    let section = format!(
+        "[{}]\nSigLevel = Optional TrustAll\nServer = file://{}\n\n",
+        local_repo_name(cfg),
+        local_repo_dir(cfg).display()
+    );
+    // Vor die offiziellen Repos, direkt nach [options]
+    match conf.find("\n\n") {
+        Some(i) => format!("{}\n\n{section}{}", &conf[..i], &conf[i + 2..]),
+        None => conf + "\n" + &section,
+    }
+}
+
+/// Bash: Quellen von Nothing_Wayland nach `$dest` holen (lokaler Checkout oder GitHub).
+fn nothing_fetch_script(cfg: &Config, dest: &str) -> String {
+    let src = cfg.packages.nothing_src.trim();
+    let mut s = format!("NOTHING_DIR={dest}\nrm -rf -- \"$NOTHING_DIR\"\n");
+    if src.is_empty() {
+        s += &format!(
+            "git clone -q --depth 1 {} \"$NOTHING_DIR\"\nrm -rf -- \"$NOTHING_DIR/.git\"\n",
+            quote_str(C::NOTHING_REPO_URL)
+        );
+    } else {
+        s += &format!(
+            "mkdir -p -- \"$NOTHING_DIR\"\ntar -C {} --exclude=./.git --exclude=./src --exclude=./pkg --exclude=./build \\\n  --exclude=./.pytest_cache --exclude='./*.pkg.tar.*' -cf - . | tar -C \"$NOTHING_DIR\" -xf -\n",
+            quote_str(src)
+        );
+    }
+    s
+}
+
+/// Bash für build.sh der ISO: nothing-de auf dem Host bauen und ins lokale Repo legen.
+fn nothing_iso_script(cfg: &Config, uid: u32, gid: u32) -> String {
+    if !C::builds_nothing(cfg) {
+        return String::new();
+    }
+    let repo = quote_str(&local_repo_dir(cfg).to_string_lossy());
+    let db = local_repo_name(cfg);
+    format!(
+        "echo \"==> Baue {pkg} aus den Quellen\"\nfor t in git makepkg repo-add setpriv; do\n  command -v \"$t\" >/dev/null || {{ echo \"FEHLER: $t fehlt (pacman -S git base-devel pacman util-linux)\" >&2; exit 1; }}\ndone\nmkdir -p -- \"$BASE/cache\"\n{fetch}chown -R {uid}:{gid} -- \"$NOTHING_DIR\"\nas_user() {{ (cd \"$NOTHING_DIR\" && setpriv --reuid={uid} --regid={gid} --init-groups env HOME=\"$(getent passwd {uid} | cut -d: -f6)\" \"$@\"); }}\nBUILD_DEPS=$(as_user bash -c 'source ./PKGBUILD && printf \"%s\\n\" \"${{depends[@]}}\" \"${{makedepends[@]}}\"' | sed 's/[<>=].*//')\necho \"Bauabhängigkeiten auf diesem Rechner: $(echo $BUILD_DEPS)\"\npacman -S --needed --noconfirm --asdeps {makedeps} $BUILD_DEPS\nas_user makepkg -f --noconfirm --nocheck\nLOCALREPO={repo}\nmkdir -p -- \"$LOCALREPO\"\nrm -f -- \"$LOCALREPO\"/{pkg}-*.pkg.tar.* \"$LOCALREPO\"/{db}.*\ncp -- \"$NOTHING_DIR\"/{pkg}-[0-9]*.pkg.tar.* \"$LOCALREPO/\"\nrepo-add -q \"$LOCALREPO/{db}.db.tar.gz\" \"$LOCALREPO\"/*.pkg.tar.*\n",
+        pkg = C::NOTHING_PKG,
+        fetch = nothing_fetch_script(cfg, "\"$BASE/cache/nothing-de-src\""),
+        makedeps = C::NOTHING_MAKEDEPS.join(" "),
+    )
+}
+
 pub fn installer_json(cfg: &Config, live_files: &[String], live_dirs: &[String]) -> String {
     let (g, i) = (&cfg.general, &cfg.installer);
     let mut data_paths = Vec::new();
@@ -927,7 +992,8 @@ pub fn installer_json(cfg: &Config, live_files: &[String], live_dirs: &[String])
         },
         kernel_params: C::kernel_params(cfg),
         zram: i.zram,
-        allow_online: i.allow_online,
+        // Lokal gebaute Pakete gibt es nur auf der ISO
+        allow_online: i.allow_online && C::local_packages(cfg).is_empty(),
         data_paths,
         live_files: live_files.to_vec(),
         live_dirs: live_dirs.to_vec(),
@@ -1112,8 +1178,9 @@ pub fn build_script(cfg: &Config) -> String {
         cfg,
         &format!("  tar -C \"$FLATPAK_CACHE\" -cf {tar} . && chown {uid}:{gid} -- {tar}"),
     );
+    let nothing = nothing_iso_script(cfg, uid, gid);
     format!(
-        "#!/bin/bash\n# Erzeugt von Distro Builder – kann auch manuell mit 'sudo bash build.sh' ausgeführt werden.\nset -euo pipefail\nBASE={}\nPROFILE={}\nWORK={}\nOUT={}\nif ! command -v mkarchiso >/dev/null; then\n  echo \"FEHLER: mkarchiso nicht gefunden. Bitte 'pacman -S archiso' installieren.\" >&2\n  exit 1\nfi\ncleanup() {{ rm -rf -- \"$WORK\"; }}\ntrap cleanup EXIT\nrm -rf -- \"$WORK\"\nmkdir -p -- \"$OUT\"\n{flatpak}\nmkarchiso -v -r -w \"$WORK\" -o \"$OUT\" \"$PROFILE\"\nchown -R {uid}:{gid} -- \"$OUT\"\necho \"##DONE##\"\n",
+        "#!/bin/bash\n# Erzeugt von Distro Builder – kann auch manuell mit 'sudo bash build.sh' ausgeführt werden.\nset -euo pipefail\nBASE={}\nPROFILE={}\nWORK={}\nOUT={}\nif ! command -v mkarchiso >/dev/null; then\n  echo \"FEHLER: mkarchiso nicht gefunden. Bitte 'pacman -S archiso' installieren.\" >&2\n  exit 1\nfi\ncleanup() {{ rm -rf -- \"$WORK\"; }}\ntrap cleanup EXIT\nrm -rf -- \"$WORK\"\nmkdir -p -- \"$OUT\"\n{nothing}{flatpak}\nmkarchiso -v -r -w \"$WORK\" -o \"$OUT\" \"$PROFILE\"\nchown -R {uid}:{gid} -- \"$OUT\"\necho \"##DONE##\"\n",
         quote_str(&pth.base.to_string_lossy()),
         quote_str(&pth.profile.to_string_lossy()),
         quote_str(&pth.work.to_string_lossy()),
@@ -1220,9 +1287,11 @@ pub fn generate(
     }
 
     // Repositories
-    let pconf = pacman_conf(cfg);
-    write_file(&profile.join("pacman.conf"), &pconf)?;
-    write_file(&air.join("etc/pacman.conf"), &pconf)?;
+    write_file(&profile.join("pacman.conf"), &pacman_conf_build(cfg))?;
+    write_file(&air.join("etc/pacman.conf"), &pacman_conf(cfg))?;
+    if C::builds_nothing(cfg) {
+        log("Nothing-Desktop: nothing-de wird beim Bauen aus den Quellen gebaut");
+    }
 
     // Branding
     write_file(&air.join("etc/hostname"), &(g.hostname.clone() + "\n"))?;
@@ -1466,10 +1535,12 @@ fn image_services(cfg: &Config) -> Vec<String> {
     let gid = &cfg.general.id;
     let mut svcs = C::target_services(cfg);
     svcs.extend(extra_services(cfg));
-    for s in [
-        format!("{gid}-growfs.service"),
-        format!("{gid}-pacman-init.service"),
-    ] {
+    let mut own = vec![format!("{gid}-pacman-init.service")];
+    // Auf dem Telefon vergrößert tetris-growfs die userdata-Partition
+    if !C::is_phone(cfg) {
+        own.insert(0, format!("{gid}-growfs.service"));
+    }
+    for s in own {
         if !svcs.contains(&s) {
             svcs.push(s);
         }
@@ -1508,6 +1579,13 @@ fn image_overlay(cfg: &Config, air: &Path) -> std::io::Result<()> {
         &air.join("etc/sudoers.d/10-wheel"),
         "%wheel ALL=(ALL:ALL) ALL\n",
     )?;
+    if C::is_phone(cfg) {
+        // growfs, Bootloader und Netzwerk richtet cmf-phone1-arch selbst ein
+        return write_file(
+            &air.join("etc/systemd/system").join(format!("{gid}-pacman-init.service")),
+            &pacman_init_unit(&g.name),
+        );
+    }
     let desktop = C::desktop_info(cfg);
     if let Some(dm) = desktop.display_manager {
         if img.autologin {
@@ -1533,12 +1611,15 @@ fn image_overlay(cfg: &Config, air: &Path) -> std::io::Result<()> {
     )?;
     write_file(
         &air.join("etc/systemd/system").join(format!("{gid}-pacman-init.service")),
-        &format!(
-            "[Unit]\nDescription={}: Paketschlüssel einrichten\nConditionPathExists=!/etc/pacman.d/gnupg\nBefore=archlinux-keyring-wkd-sync.service\n\n[Service]\nType=oneshot\nExecStart=/usr/bin/pacman-key --init\nExecStart=/usr/bin/pacman-key --populate archlinuxarm\n\n[Install]\nWantedBy=multi-user.target\n",
-            g.name
-        ),
+        &pacman_init_unit(&g.name),
     )?;
     Ok(())
+}
+
+fn pacman_init_unit(name: &str) -> String {
+    format!(
+        "[Unit]\nDescription={name}: Paketschlüssel einrichten\nConditionPathExists=!/etc/pacman.d/gnupg\nBefore=archlinux-keyring-wkd-sync.service\n\n[Service]\nType=oneshot\nExecStart=/usr/bin/pacman-key --init\nExecStart=/usr/bin/pacman-key --populate archlinuxarm\n\n[Install]\nWantedBy=multi-user.target\n"
+    )
 }
 
 pub fn image_setup_script(cfg: &Config) -> String {
@@ -1546,14 +1627,16 @@ pub fn image_setup_script(cfg: &Config) -> String {
     let services: Vec<String> = image_services(cfg).iter().map(|s| quote_str(s)).collect();
     let flag = |b: bool| if b { "1" } else { "0" };
     let has_dm = C::desktop_info(cfg).display_manager.is_some();
+    let phone = C::is_phone(cfg);
+    let user = if phone { C::PHONE_USER } else { &img.username };
     let vars = [
         format!("PLATFORM={}", quote_str(C::arch(cfg))),
         format!("KERNEL={}", quote_str(&C::kernel(cfg))),
         format!("NAME={}", quote_str(&g.name)),
         format!("GID={}", quote_str(&g.id)),
-        format!("USERNAME={}", quote_str(&img.username)),
+        format!("USERNAME={}", quote_str(user)),
         format!("PASSWORD={}", quote_str(&img.password)),
-        format!("EXPIRE={}", flag(img.expire_password)),
+        format!("EXPIRE={}", flag(img.expire_password && !phone)),
         format!("AUTOLOGIN={}", flag(img.autologin && has_dm)),
         format!("FASTFETCH={}", flag(cfg.branding.fastfetch_on_terminal)),
         format!("DESKTOP={}", flag(cfg.packages.desktop != "none")),
@@ -1608,9 +1691,80 @@ pub fn image_build_script(cfg: &Config) -> String {
         .replace("@@ALARM_KEY@@", ALARM_KEY)
         .replace("@@LAYOUT@@", layout)
         .replace("@@LABEL@@", &quote_str(&label))
+        .replace("@@NOTHING@@", &nothing_image_script(cfg))
         .replace("@@FLATPAK@@", &flatpak)
         .replace("@@TOOL@@", tool)
         .replace("@@COMPRESS@@", compress)
+        .replace("@@UID@@", &uid.to_string())
+        .replace("@@GID@@", &gid.to_string())
+}
+
+/// Bash für image-build.sh: Quellen von nothing-de ins Image legen, setup.sh baut sie dort.
+fn nothing_image_script(cfg: &Config) -> String {
+    if !C::builds_nothing(cfg) {
+        return String::new();
+    }
+    format!(
+        "echo \"==> Hole die Quellen von {}\"\n{}",
+        C::NOTHING_PKG,
+        nothing_fetch_script(cfg, "\"$MNT/root/nothing-de-src\"")
+    )
+}
+
+/// Zweite Stufe auf dem Telefon (scripts/setup-phone.sh von cmf-phone1-arch).
+/// `$REPO` setzt phone-build.sh davor, `$1` ist das Halium-Image.
+fn phone_stage2_script(cfg: &Config) -> String {
+    let mut lines = vec![format!("export SUDO_PASS={}", quote_str(&cfg.image.password))];
+    if cfg.packages.desktop != "nothing" {
+        lines.push("export PHOSH=1".to_string());
+    }
+    let src = cfg.packages.nothing_src.trim();
+    if cfg.packages.desktop == "nothing" && !src.is_empty() {
+        lines.push(format!("export NOTHING_SRC={}", quote_str(src)));
+    }
+    lines.push("IMG=${1:?Aufruf: zweite-stufe.sh <halium-system.img>}".to_string());
+    lines.push("\"$REPO/scripts/setup-phone.sh\" \"$IMG\"".to_string());
+    if C::phone_profile(cfg) == "desktop" {
+        // setup-desktop.sh baut libhybris für GNOME auf der GPU – erst nach dem Neustart
+        lines.push("echo \"Warte, bis das Telefon wieder erreichbar ist …\"".to_string());
+        lines.push("sleep 20".to_string());
+        lines.push(
+            "until \"$REPO/scripts/phone-ssh.sh\" true 2>/dev/null; do sleep 5; done".to_string(),
+        );
+        lines.push("\"$REPO/scripts/setup-desktop.sh\"".to_string());
+    }
+    lines.join("\n")
+}
+
+/// build.sh für das CMF Phone 1: cmf-phone1-arch baut Kernel, Boot-Images und Grundsystem,
+/// danach kommen Branding, Pakete und Einstellungen aus Distro Builder ins Image.
+pub fn phone_build_script(cfg: &Config) -> String {
+    let pth = paths(cfg);
+    let g = &cfg.general;
+    let (uid, gid) = unsafe { (libc_getuid(), libc_getgid()) };
+    let repo = cfg.build.phone_repo.trim();
+    let stage2 = phone_stage2_script(cfg);
+    let flatpak = flatpak_preload_script(
+        cfg,
+        "  mkdir -p \"$MNT/var/lib/flatpak\" && cp -a \"$FLATPAK_CACHE/.\" \"$MNT/var/lib/flatpak/\" && chown -R 0:0 \"$MNT/var/lib/flatpak\"",
+    );
+    include_str!("../templates/phone-build.sh")
+        .replace("@@NAME@@", &g.name)
+        .replace("@@BASE@@", &quote_str(&pth.base.to_string_lossy()))
+        .replace("@@PROFILE@@", &quote_str(&pth.profile.to_string_lossy()))
+        .replace("@@WORK@@", &quote_str(&pth.work.to_string_lossy()))
+        .replace("@@OUT@@", &quote_str(&pth.out.to_string_lossy()))
+        .replace("@@REPO@@", &quote_str(repo))
+        .replace("@@REPO_URL@@", &quote_str(C::PHONE_REPO_URL))
+        .replace("@@URL@@", &quote_str(C::alarm_tarball("aarch64")))
+        .replace("@@PHONE_PROFILE@@", C::phone_profile(cfg))
+        .replace("@@SIZE_GB@@", &cfg.image.size_gb.to_string())
+        .replace(
+            "@@IMG_PREFIX@@",
+            &quote_str(&format!("{}-{}-{}-", g.id, g.version, C::PHONE)),
+        )
+        .replace("@@FLATPAK@@", &flatpak)
+        .replace("@@STAGE2@@", &stage2)
         .replace("@@UID@@", &uid.to_string())
         .replace("@@GID@@", &gid.to_string())
 }
@@ -1642,7 +1796,17 @@ pub fn generate_image(cfg: &Config, mut log: impl FnMut(&str)) -> Result<Paths, 
     if cfg.ai.ollama && !cfg.ai.models.is_empty() {
         log(&format!("KI-Modelle: {}", cfg.ai.models.join(", ")));
     }
-    write_file_mode(&pth.script, &image_build_script(cfg), 0o755)?;
+    let script = if C::is_phone(cfg) {
+        log(&format!(
+            "CMF Phone 1: Profil {} aus cmf-phone1-arch, Oberfläche {}",
+            C::phone_profile(cfg),
+            C::desktop_info(cfg).label
+        ));
+        phone_build_script(cfg)
+    } else {
+        image_build_script(cfg)
+    };
+    write_file_mode(&pth.script, &script, 0o755)?;
     write_file(
         &pth.base.join("project.json"),
         &serde_json::to_string_pretty(cfg).unwrap(),
@@ -2020,6 +2184,124 @@ mod tests {
                 air.join("etc/distro-installer.json").is_file(),
                 has_installer
             );
+        }
+    }
+
+    #[test]
+    fn phone_platform() {
+        for (desktop, profile) in [
+            ("nothing", "phone"),
+            ("phosh", "phone"),
+            ("gnome", "desktop"),
+            ("none", "server"),
+        ] {
+            let tmp = tempfile::tempdir().unwrap();
+            let mut cfg = make_cfg(tmp.path());
+            cfg.build.arch = C::PHONE.into();
+            cfg.packages.kernel = C::kernel(&cfg);
+            cfg.packages.desktop = desktop.into();
+            cfg.packages.nothing_src = String::new();
+            cfg.image.username = C::PHONE_USER.into();
+            cfg.image.password = "geheim$1".into();
+            cfg.image.size_gb = 10;
+            let (errors, _) = C::validate(&cfg);
+            assert!(errors.is_empty(), "{desktop}: {errors:?}");
+            let pth = generate(&cfg, |_| {}, Path::new("/nonexistent"), None).unwrap();
+            let prof = &pth.profile;
+            check_bash(&pth.script);
+            check_bash(&prof.join("setup.sh"));
+            let script = fs::read_to_string(&pth.script).unwrap();
+            assert!(!script.contains("@@"), "unersetzter Platzhalter in build.sh");
+            assert!(script.contains(&format!("PHONE_PROFILE={profile}\n")));
+            assert!(script.contains(C::PHONE_REPO_URL));
+            assert!(script.contains("scripts/build-rootfs.sh"));
+            assert!(script.contains("export SUDO_PASS=\"geheim\\$1\""));
+            assert_eq!(script.contains("export PHOSH=1"), desktop != "nothing");
+            assert_eq!(script.contains("setup-desktop.sh"), desktop == "gnome");
+            let setup = fs::read_to_string(prof.join("setup.sh")).unwrap();
+            assert!(setup.contains("PLATFORM=\"cmf-phone1\""));
+            assert!(setup.contains("USERNAME=\"alarm\""));
+            assert!(setup.contains("EXPIRE=0"));
+            assert!(!setup.contains("testos-growfs"));
+            assert!(!setup.contains("@@"), "unersetzter Platzhalter in setup.sh");
+            let pkgs = fs::read_to_string(prof.join("packages.txt")).unwrap();
+            for p in ["linux-aarch64", "linux-firmware", "grub", C::NOTHING_PKG, "sddm"] {
+                assert!(!pkgs.lines().any(|l| l == p), "{desktop}: {p} im Telefon-Image");
+            }
+            let conf = fs::read_to_string(prof.join("pacman.conf")).unwrap();
+            assert!(conf.contains("DisableSandbox"));
+            assert!(conf.contains("Architecture = aarch64"));
+            assert!(prof.join("airootfs/etc/systemd/system/testos-pacman-init.service").is_file());
+            assert!(!prof.join("airootfs/usr/local/bin/testos-growfs").exists());
+        }
+    }
+
+    #[test]
+    fn phone_rejects_pc_desktop() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = make_cfg(tmp.path());
+        cfg.build.arch = C::PHONE.into();
+        cfg.packages.desktop = "kde".into();
+        let (errors, _) = C::validate(&cfg);
+        assert!(errors.iter().any(|e| e.contains("CMF Phone 1")), "{errors:?}");
+    }
+
+    #[test]
+    fn nothing_arm_image() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cfg = make_cfg(tmp.path());
+        cfg.build.arch = "aarch64".into();
+        cfg.packages.kernel = C::kernel(&cfg);
+        cfg.packages.desktop = "nothing".into();
+        cfg.image.autologin = true;
+        let pth = generate(&cfg, |_| {}, Path::new("/nonexistent"), None).unwrap();
+        let prof = &pth.profile;
+        check_bash(&pth.script);
+        check_bash(&prof.join("setup.sh"));
+        let script = fs::read_to_string(&pth.script).unwrap();
+        assert!(script.contains(C::NOTHING_REPO_URL));
+        assert!(script.contains("$MNT/root/nothing-de-src"));
+        let pkgs = fs::read_to_string(prof.join("packages.txt")).unwrap();
+        assert!(!pkgs.lines().any(|l| l == C::NOTHING_PKG));
+        assert!(pkgs.lines().any(|l| l == "wlroots0.20"));
+        let auto = fs::read_to_string(prof.join("airootfs/etc/sddm.conf.d/autologin.conf")).unwrap();
+        assert!(auto.contains("Session=nothing"));
+    }
+
+    #[test]
+    #[ignore = "requires archiso releng template; run with --include-ignored on Arch Linux"]
+    fn nothing_iso() {
+        if !releng_dir().is_dir() {
+            eprintln!("skipping: no releng at {}", releng_dir().display());
+            return;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("Nothing_Wayland");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("PKGBUILD"), "pkgname=nothing-de\n").unwrap();
+        let mut cfg = make_cfg(tmp.path());
+        cfg.packages.desktop = "nothing".into();
+        cfg.packages.nothing_src = src.to_string_lossy().into_owned();
+        let bins = locate_installer_binaries();
+        let pth = generate(&cfg, |_| {}, &releng_dir(), bins.as_ref()).unwrap();
+        check_bash(&pth.script);
+        let script = fs::read_to_string(&pth.script).unwrap();
+        assert!(script.contains("makepkg -f"));
+        assert!(script.contains("repo-add -q"));
+        assert!(script.contains(&src.to_string_lossy().into_owned()));
+        // Das lokale Repo kennt nur mkarchiso, nicht das Live-System
+        let build_conf = fs::read_to_string(pth.profile.join("pacman.conf")).unwrap();
+        let live_conf = fs::read_to_string(pth.profile.join("airootfs/etc/pacman.conf")).unwrap();
+        assert!(build_conf.contains("[testos-local]"));
+        let local = build_conf.find("[testos-local]").unwrap();
+        assert!(local < build_conf.find("[core]").unwrap());
+        assert!(build_conf[..local].contains("[options]"));
+        assert!(!live_conf.contains("testos-local"));
+        let pkgs = fs::read_to_string(pth.profile.join("packages.x86_64")).unwrap();
+        assert!(pkgs.lines().any(|l| l == C::NOTHING_PKG));
+        if bins.is_some() {
+            let json = fs::read_to_string(pth.profile.join("airootfs/etc/distro-installer.json")).unwrap();
+            assert!(json.contains("\"allow_online\": false"));
         }
     }
 }

@@ -344,20 +344,29 @@ fn region_rows(ctx: &Rc<Ctx>, d: &adw::PreferencesGroup) {
 fn image_page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
     let label = C::arch_info(&ctx.cfg.borrow()).label;
+    let phone = C::is_phone(&ctx.cfg.borrow());
     let grp = adw::PreferencesGroup::builder()
         .title("Fertiges System")
-        .description(format!(
-            "Für {label} gibt es keinen Installer: Das Image enthält ein fertig eingerichtetes System. Beim ersten Start wächst die Partition auf die Größe der SD-Karte bzw. des Datenträgers."
-        ))
+        .description(if phone {
+            format!(
+                "Für das {label} gibt es keinen Installer: Das userdata-Image enthält ein fertig eingerichtetes System. Der Benutzer heißt immer alarm, SSH ist an. Beim ersten Start wächst das System auf die ganze userdata-Partition."
+            )
+        } else {
+            format!(
+                "Für {label} gibt es keinen Installer: Das Image enthält ein fertig eingerichtetes System. Beim ersten Start wächst die Partition auf die Größe der SD-Karte bzw. des Datenträgers."
+            )
+        })
         .build();
     page.add(&grp);
-    ctx.entry_row(
-        &grp,
-        "Benutzername",
-        |cfg| cfg.image.username.clone(),
-        |cfg, v| cfg.image.username = v,
-        None,
-    );
+    if !phone {
+        ctx.entry_row(
+            &grp,
+            "Benutzername",
+            |cfg| cfg.image.username.clone(),
+            |cfg, v| cfg.image.username = v,
+            None,
+        );
+    }
     let pw = adw::PasswordEntryRow::builder()
         .title("Startpasswort")
         .text(ctx.cfg.borrow().image.password.clone())
@@ -370,20 +379,22 @@ fn image_page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         });
     }
     grp.add(&pw);
-    ctx.switch_row(
-        &grp,
-        "Passwort beim ersten Anmelden ändern",
-        None,
-        |cfg| cfg.image.expire_password,
-        |cfg, v| cfg.image.expire_password = v,
-    );
-    ctx.switch_row(
-        &grp,
-        "Automatisch anmelden",
-        Some("Nur mit Desktop-Umgebung"),
-        |cfg| cfg.image.autologin,
-        |cfg, v| cfg.image.autologin = v,
-    );
+    if !phone {
+        ctx.switch_row(
+            &grp,
+            "Passwort beim ersten Anmelden ändern",
+            None,
+            |cfg| cfg.image.expire_password,
+            |cfg, v| cfg.image.expire_password = v,
+        );
+        ctx.switch_row(
+            &grp,
+            "Automatisch anmelden",
+            Some("Nur mit Desktop-Umgebung"),
+            |cfg| cfg.image.autologin,
+            |cfg, v| cfg.image.autologin = v,
+        );
+    }
     ctx.switch_row(
         &grp,
         "zram-Swap aktivieren",
@@ -397,7 +408,11 @@ fn image_page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         0,
     );
     size.set_title("Image-Größe (GB)");
-    size.set_subtitle("Platz für System, Modelle und Apps – wächst beim ersten Start automatisch");
+    size.set_subtitle(if phone {
+        "Platz beim Bauen – das fertige Image schrumpft und wächst auf dem Telefon auf die ganze userdata-Partition"
+    } else {
+        "Platz für System, Modelle und Apps – wächst beim ersten Start automatisch"
+    });
     size.set_value(ctx.cfg.borrow().image.size_gb as f64);
     {
         let ctx2 = ctx.clone();
