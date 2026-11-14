@@ -84,6 +84,7 @@ tar -C "$PROFILE/airootfs" --owner=0 --group=0 -cf - . | tar -C "$MNT" -xpf -
 install -m644 "$PROFILE/pacman.conf" "$MNT/etc/pacman.conf"
 install -m600 "$PROFILE/setup.sh" "$MNT/root/setup.sh"
 install -m644 "$PROFILE/packages.txt" "$MNT/root/packages.txt"
+@@NOTHING@@
 @@FLATPAK@@
 echo "==> System wird im Image eingerichtet (unter Emulation dauert das)"
 arch-chroot "$MNT" /usr/bin/env \

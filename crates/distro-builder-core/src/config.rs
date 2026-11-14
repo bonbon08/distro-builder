@@ -115,6 +115,8 @@ pub struct Packages {
     pub custom: String,
     pub rescue_tools: bool,
     pub gpu: String,
+    /// Nothing-Desktop: lokaler Checkout von Nothing_Wayland; leer = von GitHub laden
+    pub nothing_src: String,
 }
 
 impl Default for Packages {
@@ -131,6 +133,7 @@ impl Default for Packages {
             custom: String::new(),
             rescue_tools: true,
             gpu: "mesa".into(),
+            nothing_src: String::new(),
         }
     }
 }
@@ -432,11 +435,13 @@ impl Default for ImageCfg {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Build {
-    /// x86_64 | aarch64 | rpi
+    /// x86_64 | aarch64 | rpi | cmf-phone1
     pub arch: String,
     pub project_dir: String,
     /// zstd (schnell) | xz (klein)
     pub compression: String,
+    /// CMF Phone 1: lokaler Checkout von cmf-phone1-arch; leer = von GitHub laden
+    pub phone_repo: String,
 }
 
 impl Default for Build {
@@ -445,6 +450,7 @@ impl Default for Build {
             arch: "x86_64".into(),
             project_dir: default_project_dir(),
             compression: "zstd".into(),
+            phone_repo: String::new(),
         }
     }
 }
@@ -569,7 +575,35 @@ pub fn arches() -> Vec<(&'static str, ArchInfo)> {
                 oci: "arm64",
             },
         ),
+        (
+            PHONE,
+            ArchInfo {
+                label: "CMF Phone 1 (Nothing)",
+                desc: "userdata-Image und Boot-Images für das CMF Phone 1, zum Flashen per fastboot (cmf-phone1-arch)",
+                pacman: "aarch64",
+                oci: "arm64",
+            },
+        ),
     ]
+}
+
+/// Plattform-Schlüssel des CMF Phone 1 (Codename Tetris)
+pub const PHONE: &str = "cmf-phone1";
+pub const PHONE_REPO_URL: &str = "https://github.com/bonbon08/cmf-phone1-arch.git";
+pub const NOTHING_REPO_URL: &str = "https://github.com/bonbon08/Nothing_Wayland.git";
+
+/// Das CMF Phone 1 bringt Kernel, Bootkette und Grundsystem aus cmf-phone1-arch mit.
+pub fn is_phone(cfg: &Config) -> bool {
+    arch(cfg) == PHONE
+}
+
+/// Profil von cmf-phone1-arch (scripts/build-rootfs.sh) passend zur Oberfläche.
+pub fn phone_profile(cfg: &Config) -> &'static str {
+    match cfg.packages.desktop.as_str() {
+        "none" => "server",
+        "gnome" => "desktop",
+        _ => "phone",
+    }
 }
 
 /// Arch Linux ARM: Basissystem pro Plattform
@@ -615,6 +649,7 @@ pub fn kernels_for(cfg: &Config) -> Vec<(&'static str, &'static str)> {
             ("linux-rpi", "Raspberry Pi (Pi 4/400/5)"),
             ("linux-rpi-16k", "Raspberry Pi 5 (16K-Seiten, schneller)"),
         ],
+        PHONE => vec![("tetris-6.1", "Nothing-Kernel 6.1 (wird aus den Quellen gebaut)")],
         _ => kernels(),
     }
 }
@@ -725,15 +760,98 @@ pub fn desktops() -> Vec<(&'static str, DesktopInfo)> {
                 session: Some("lxqt"),
             },
         ),
+        (
+            "nothing",
+            DesktopInfo {
+                label: "Nothing (Wayland, im Stil von Nothing OS)",
+                packages: vec![
+                    NOTHING_PKG,
+                    "wlroots0.20",
+                    "xorg-xwayland",
+                    "gtk4",
+                    "gtk4-layer-shell",
+                    "libadwaita",
+                    "python",
+                    "python-gobject",
+                    "python-cairo",
+                    "python-numpy",
+                    "gnome-online-accounts",
+                    "accountsservice",
+                    "polkit-gnome",
+                    "xdg-desktop-portal",
+                    "xdg-desktop-portal-gtk",
+                    "xdg-desktop-portal-wlr",
+                    "wireplumber",
+                    "bluez-utils",
+                    "gnome-keyring",
+                    "grim",
+                    "slurp",
+                    "wl-clipboard",
+                    "brightnessctl",
+                    "playerctl",
+                    "gnome-console",
+                    "nautilus",
+                    // SDDM zeigt seinen Anmeldebildschirm über X11
+                    "xorg-server",
+                    "sddm",
+                ],
+                display_manager: Some("sddm"),
+                session: Some("nothing"),
+            },
+        ),
     ]
 }
 
+/// Paket des Nothing-Desktops – gibt es in keinem Repo, Distro Builder baut es aus den Quellen.
+pub const NOTHING_PKG: &str = "nothing-de";
+/// Zum Bauen von nothing-de (makedepends aus dessen PKGBUILD)
+pub const NOTHING_MAKEDEPS: &[&str] = &["base-devel", "git", "meson", "ninja", "wayland-protocols"];
+
+/// Oberflächen des CMF Phone 1 – sie richtet cmf-phone1-arch selbst ein.
+pub fn phone_desktops() -> Vec<(&'static str, DesktopInfo)> {
+    let ui = |label| DesktopInfo {
+        label,
+        packages: vec![],
+        display_manager: None,
+        session: None,
+    };
+    vec![
+        ("nothing", ui("Nothing-Shell (Telefon-Layout)")),
+        ("phosh", ui("Phosh")),
+        ("gnome", ui("GNOME über RDP (Desktop-Profil)")),
+        ("none", ui("Server ohne Oberfläche (Docker, Ollama, SSH)")),
+    ]
+}
+
+/// Desktops, die es auf der gewählten Plattform gibt.
+pub fn desktops_for(cfg: &Config) -> Vec<(&'static str, DesktopInfo)> {
+    if is_phone(cfg) {
+        phone_desktops()
+    } else {
+        desktops()
+    }
+}
+
 pub fn desktop_info(cfg: &Config) -> DesktopInfo {
-    desktops()
-        .into_iter()
-        .find(|(k, _)| *k == cfg.packages.desktop)
-        .map(|(_, v)| v)
-        .unwrap_or_else(|| desktops().remove(0).1)
+    let mut all = desktops_for(cfg);
+    match all.iter().position(|(k, _)| *k == cfg.packages.desktop) {
+        Some(i) => all.remove(i).1,
+        None => all.remove(0).1,
+    }
+}
+
+/// nothing-de muss beim Bauen aus den Quellen entstehen (auf dem Telefon erledigt das die zweite Stufe).
+pub fn builds_nothing(cfg: &Config) -> bool {
+    cfg.packages.desktop == "nothing" && !is_phone(cfg)
+}
+
+/// Pakete, die kein Repo hat und die vor der Installation gebaut werden.
+pub fn local_packages(cfg: &Config) -> Vec<&'static str> {
+    if builds_nothing(cfg) {
+        vec![NOTHING_PKG]
+    } else {
+        vec![]
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1314,6 +1432,8 @@ pub fn flatpak_store(cfg: &Config) -> Vec<&'static str> {
     match cfg.packages.desktop.as_str() {
         "none" => vec![],
         "kde" | "lxqt" => vec!["discover"],
+        // Auf dem Telefon bringt jedes Profil GNOME-Apps mit
+        _ if is_phone(cfg) => vec!["gnome-software"],
         _ => vec!["gnome-software"],
     }
 }
@@ -1342,10 +1462,16 @@ fn to_strings(v: Vec<&str>) -> Vec<String> {
 pub fn target_packages(cfg: &Config) -> Vec<String> {
     let p = &cfg.packages;
     let kern = kernel(cfg);
-    let mut pkgs: Vec<String> = vec!["base".into(), kern.clone(), "linux-firmware".into()];
+    // Kernel und Bootkette des Telefons kommen aus cmf-phone1-arch (boot_b/vendor_boot_b)
+    let mut pkgs: Vec<String> = if is_phone(cfg) {
+        vec!["base".into()]
+    } else {
+        vec!["base".into(), kern.clone(), "linux-firmware".into()]
+    };
     pkgs.extend(to_strings(match arch(cfg) {
         "x86_64" => vec!["amd-ucode", "intel-ucode", "grub", "efibootmgr"],
         "aarch64" => vec!["archlinuxarm-keyring", "grub", "efibootmgr"],
+        PHONE => vec!["archlinuxarm-keyring"],
         _ => vec![
             "archlinuxarm-keyring",
             "raspberrypi-bootloader",
@@ -1459,8 +1585,13 @@ pub fn target_services(cfg: &Config) -> Vec<String> {
 }
 
 /// Pakete für das fertige ARM-Image (zusätzlich zum Arch-Linux-ARM-Basissystem).
+/// Lokal gebaute Pakete (nothing-de) fehlen hier – setup.sh baut sie im Image.
 pub fn image_packages(cfg: &Config) -> Vec<String> {
-    let mut pkgs = target_packages(cfg);
+    let local = local_packages(cfg);
+    let mut pkgs: Vec<String> = target_packages(cfg)
+        .into_iter()
+        .filter(|p| !local.contains(&p.as_str()))
+        .collect();
     pkgs.extend(to_strings(vec!["e2fsprogs", "util-linux"]));
     dedup(pkgs)
 }
@@ -1612,6 +1743,7 @@ pub fn validate(cfg: &Config) -> (Vec<String>, Vec<String>) {
     validate_live(cfg, &mut errors, &mut warnings);
     validate_mirror(cfg, &mut errors, &mut warnings);
     validate_arch(cfg, &mut errors, &mut warnings);
+    validate_nothing(cfg, &mut errors, &mut warnings);
     validate_flatpak(cfg, &mut errors, &mut warnings);
     validate_distrobox(cfg, &mut errors, &mut warnings);
     (errors, warnings)
@@ -1752,6 +1884,10 @@ fn validate_arch(cfg: &Config, errors: &mut Vec<String>, warnings: &mut Vec<Stri
             cfg.packages.kernel
         ));
     }
+    if is_phone(cfg) {
+        validate_phone(cfg, errors, warnings);
+        return;
+    }
     let img = &cfg.image;
     if !user_re().is_match(&img.username) || img.username == "root" {
         errors.push("Ungültiger Benutzername für das Image (a-z, 0-9, _ und -).".to_string());
@@ -1793,6 +1929,91 @@ fn validate_arch(cfg: &Config, errors: &mut Vec<String>, warnings: &mut Vec<Stri
     warnings.push(format!(
         "{label}: Es entsteht ein fertig installiertes Image (Arch Linux ARM). Nicht jedes Paket aus Arch Linux gibt es auch für ARM."
     ));
+}
+
+/// Benutzer des Telefons – die Dienste von cmf-phone1-arch setzen ihn voraus.
+pub const PHONE_USER: &str = "alarm";
+
+fn validate_phone(cfg: &Config, errors: &mut Vec<String>, warnings: &mut Vec<String>) {
+    let desktop = cfg.packages.desktop.as_str();
+    if !phone_desktops().iter().any(|(k, _)| *k == desktop) {
+        errors.push(format!(
+            "Die Oberfläche '{desktop}' gibt es auf dem CMF Phone 1 nicht – bitte Nothing-Shell, Phosh, GNOME über RDP oder Server wählen."
+        ));
+    }
+    let repo = cfg.build.phone_repo.trim();
+    if !repo.is_empty() && !Path::new(repo).join("scripts/build-rootfs.sh").is_file() {
+        errors.push(format!(
+            "Kein cmf-phone1-arch-Checkout unter {repo} (scripts/build-rootfs.sh fehlt)."
+        ));
+    }
+    let img = &cfg.image;
+    if img.password.is_empty() {
+        errors.push("Das Telefon braucht ein Passwort für den Benutzer alarm.".to_string());
+    }
+    // Die Skripte von cmf-phone1-arch reichen es in einfachen Anführungszeichen an sudo weiter
+    if img.password.contains('\'') {
+        errors.push("Das Passwort des Telefons darf kein ' enthalten.".to_string());
+    }
+    if img.username != PHONE_USER {
+        warnings.push(format!(
+            "Auf dem CMF Phone 1 heißt der Benutzer immer '{PHONE_USER}' – '{}' wird ignoriert.",
+            img.username
+        ));
+    }
+    if img.expire_password {
+        warnings.push(
+            "Auf dem CMF Phone 1 läuft das Passwort nicht ab – die zweite Stufe braucht sudo mit diesem Passwort."
+                .to_string(),
+        );
+    }
+    if img.size_gb < 8 {
+        errors.push(
+            "Das Telefon-Image muss beim Bauen mindestens 8 GB groß sein (es schrumpft danach).".to_string(),
+        );
+    }
+    if cfg.ai.ollama {
+        warnings.push(
+            "Arch Linux ARM hat kein Ollama-Paket. Auf dem Telefon läuft Ollama im Server-Profil als Container."
+                .to_string(),
+        );
+    }
+    warnings.push(
+        "CMF Phone 1: Selbst besorgen musst du die Stock-Firmware B4.1, Android-Clang r487747c und busybox (siehe README von cmf-phone1-arch). Für die zweite Stufe brauchst du außerdem das Halium-Image."
+            .to_string(),
+    );
+    warnings.push(
+        "CMF Phone 1: Das Flashen löscht alle Daten auf dem Telefon. Android bleibt auf Slot a erhalten."
+            .to_string(),
+    );
+}
+
+fn validate_nothing(cfg: &Config, errors: &mut Vec<String>, warnings: &mut Vec<String>) {
+    if cfg.packages.desktop != "nothing" {
+        return;
+    }
+    let src = cfg.packages.nothing_src.trim();
+    if !src.is_empty() && !Path::new(src).join("PKGBUILD").is_file() {
+        errors.push(format!(
+            "Kein Nothing_Wayland-Checkout unter {src} (PKGBUILD fehlt)."
+        ));
+    }
+    if is_phone(cfg) {
+        return;
+    }
+    warnings.push(format!(
+        "Der Nothing-Desktop steht in keinem Repo. {NOTHING_PKG} wird beim Bauen aus den Quellen gebaut{}.",
+        if is_image(cfg) {
+            " (im Image, unter Emulation)"
+        } else {
+            "; dafür installiert der Build die Bauabhängigkeiten auf diesem Rechner"
+        }
+    ));
+    if installer_active(cfg) && cfg.installer.allow_online {
+        warnings.push(format!(
+            "Mit dem Nothing-Desktop installiert der Installer nur von der ISO, weil es {NOTHING_PKG} online nicht gibt."
+        ));
+    }
 }
 
 fn validate_flatpak(cfg: &Config, errors: &mut Vec<String>, warnings: &mut Vec<String>) {

@@ -28,19 +28,44 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
         false,
     );
 
-    let desktops: Vec<(String, String)> = C::desktops()
+    let phone = C::is_phone(&ctx.cfg.borrow());
+    let desktops: Vec<(String, String)> = C::desktops_for(&ctx.cfg.borrow())
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.label.to_string()))
         .collect();
-    ctx.combo_row(
+    let desktop_row = ctx.combo_row(
         &base,
-        "Desktop-Umgebung",
+        if phone { "Oberfläche" } else { "Desktop-Umgebung" },
         &desktops,
         |cfg| cfg.packages.desktop.clone(),
         |cfg, v| cfg.packages.desktop = v,
-        Some("Inklusive Display-Manager und automatischer Anmeldung im Live-System"),
+        Some(if phone {
+            "Richtet cmf-phone1-arch ein. GNOME und Server sind dessen Desktop- und Server-Profil"
+        } else {
+            "Inklusive Display-Manager und automatischer Anmeldung im Live-System"
+        }),
         false,
     );
+    {
+        // Die Zeile für die Nothing-Quellen erscheint nur mit dem Nothing-Desktop
+        let ctx2 = ctx.clone();
+        let was_nothing = ctx.cfg.borrow().packages.desktop == "nothing";
+        desktop_row.connect_selected_notify(move |_| {
+            if (ctx2.cfg.borrow().packages.desktop == "nothing") != was_nothing {
+                let ctx3 = ctx2.clone();
+                glib::idle_add_local_once(move || ctx3.rebuild());
+            }
+        });
+    }
+    if ctx.cfg.borrow().packages.desktop == "nothing" {
+        ctx.entry_row(
+            &base,
+            "Nothing_Wayland-Checkout (leer = von GitHub laden)",
+            |cfg| cfg.packages.nothing_src.clone(),
+            |cfg, v| cfg.packages.nothing_src = v,
+            None,
+        );
+    }
     let gpus: Vec<(String, String)> = C::gpus_for(&ctx.cfg.borrow())
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.label.to_string()))

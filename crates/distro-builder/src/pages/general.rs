@@ -21,6 +21,18 @@ fn on_arch_changed(ctx: &Rc<Ctx>) {
         if C::is_image(&cfg) && matches!(cfg.ai.accel.as_str(), "cuda" | "rocm") {
             cfg.ai.accel = "cpu".into();
         }
+        // Das Telefon hat eigene Oberflächen – auf die erste wechseln, wenn die gewählte fehlt
+        if !C::desktops_for(&cfg)
+            .iter()
+            .any(|(k, _)| *k == cfg.packages.desktop)
+        {
+            cfg.packages.desktop = if C::is_phone(&cfg) { "nothing" } else { "kde" }.into();
+        }
+        if C::is_phone(&cfg) {
+            cfg.image.username = C::PHONE_USER.into();
+            cfg.image.expire_password = false;
+            cfg.image.size_gb = cfg.image.size_gb.max(10);
+        }
     }
     ctx.rebuild();
     let desc = C::arch_info(&ctx.cfg.borrow()).desc;
@@ -33,7 +45,7 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
     let plat = adw::PreferencesGroup::builder()
         .title("Zielplattform")
         .description(
-            "x86_64 ergibt eine ISO mit Live-System und Installer. Für ARM und den Raspberry Pi entsteht ein fertig installiertes Disk-Image (Arch Linux ARM), das du direkt auf SD-Karte oder USB-Stick schreibst.",
+            "x86_64 ergibt eine ISO mit Live-System und Installer. Für ARM und den Raspberry Pi entsteht ein fertig installiertes Disk-Image (Arch Linux ARM), das du direkt auf SD-Karte oder USB-Stick schreibst. Für das CMF Phone 1 entstehen ein userdata-Image und die Boot-Images, die du per fastboot flashst.",
         )
         .build();
     page.add(&plat);
@@ -58,6 +70,23 @@ pub fn page(ctx: &Rc<Ctx>) -> adw::PreferencesPage {
             let ctx3 = ctx2.clone();
             glib::idle_add_local_once(move || on_arch_changed(&ctx3));
         });
+    }
+
+    if C::is_phone(&ctx.cfg.borrow()) {
+        let phone = adw::PreferencesGroup::builder()
+            .title("CMF Phone 1")
+            .description(
+                "Kernel, Boot-Images und Grundsystem baut <a href=\"https://github.com/bonbon08/cmf-phone1-arch\">cmf-phone1-arch</a>. Stock-Firmware, Android-Clang und busybox musst du selbst in den Checkout legen (siehe dessen README). Ohne eigenen Checkout lädt der Build das Repository in den Projektordner.",
+            )
+            .build();
+        page.add(&phone);
+        ctx.entry_row(
+            &phone,
+            "Pfad zum cmf-phone1-arch-Checkout (leer = von GitHub laden)",
+            |cfg| cfg.build.phone_repo.clone(),
+            |cfg, v| cfg.build.phone_repo = v,
+            None,
+        );
     }
 
     let grp = adw::PreferencesGroup::builder()

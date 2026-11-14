@@ -3,17 +3,18 @@
 Baukasten für deine eigene Linux-Distribution auf Basis von **Arch Linux**. In einer
 GTK4/libadwaita-Oberfläche stellst du Name, Logo, Repositories, Pakete, Desktop, KI-Modelle
 und Container zusammen. Distro Builder erzeugt daraus eine bootfähige **ISO mit eigenem
-grafischen Installer** für PCs oder ein **fertiges Image für ARM64 und den Raspberry Pi**.
+grafischen Installer** für PCs, ein **fertiges Image für ARM64 und den Raspberry Pi** oder ein
+**flashbares System für das CMF Phone 1**.
 
 ![Branding-Seite mit fastfetch-Vorschau](docs/screenshots/builder-branding.png)
 
 - **Branding:** Name, `/etc/os-release`, Logo für fastfetch/neofetch (Bild, Zeichengrafik oder ASCII-Art), Akzentfarbe, Hintergrundbild, Bootmenü, motd
 - **Repositories:** core, extra, multilib, testing, eigener Mirror, eigene Repos mit SigLevel und Reihenfolge
 - **Eigener Spiegelserver:** eingebauter Caching-Proxy oder vollständiger rsync-Spiegel für deine Rechner, eigenes Paket-Repository (z. B. selbst gebaute AUR-Pakete), ohne Oberfläche per `distro-builder --mirror-server` oder als nginx/Docker-Paket für einen eigenen Server
-- **Pakete:** Kernel (linux, lts, zen, hardened), Desktop (KDE Plasma, GNOME, Xfce, Cinnamon, LXQt), Grafiktreiber (Mesa, AMD, Intel, NVIDIA), Paket-Sammlungen, Paketsuche
+- **Pakete:** Kernel (linux, lts, zen, hardened), Desktop (KDE Plasma, GNOME, Xfce, Cinnamon, LXQt, [Nothing](https://github.com/bonbon08/Nothing_Wayland)), Grafiktreiber (Mesa, AMD, Intel, NVIDIA), Paket-Sammlungen, Paketsuche
 - **KI:** Ollama mit CPU, CUDA, ROCm oder Vulkan. Modelle wie Llama, Qwen, Gemma oder Mistral werden **direkt in die ISO gepackt**. Optional PyTorch und Jupyter.
 - **Container:** Docker oder Podman, vorgeladene Images, Container-Apps als Compose-Stacks (Open WebUI, Portainer, SearXNG oder eigene)
-- **Plattformen:** x86_64 (ISO mit Installer), ARM64 mit UEFI und Raspberry Pi 4/400/5 (fertiges Disk-Image auf Basis von Arch Linux ARM)
+- **Plattformen:** x86_64 (ISO mit Installer), ARM64 mit UEFI und Raspberry Pi 4/400/5 (fertiges Disk-Image auf Basis von Arch Linux ARM), CMF Phone 1 (userdata- und Boot-Images über [cmf-phone1-arch](https://github.com/bonbon08/cmf-phone1-arch))
 - **Flatpak:** Apps aus Flathub oder eigenen Flatpak-Quellen, auf Wunsch direkt mitgeliefert, dazu Discover bzw. GNOME Software
 - **Distrobox:** Ubuntu, Fedora, Debian & Co. als Container, die beim ersten Anmelden fertig eingerichtet werden
 - **Live-System:** wahlweise **ohne Installer** (Rettungs-, Kiosk- oder Gaming-ISO), eigener Benutzername und Passwort (nur als SHA-512-Hash gespeichert), sudo-Regel, Autologin, `copytoram`
@@ -117,6 +118,8 @@ Mehr dazu in [docs/architektur.md](docs/architektur.md).
 - [KI und Container](docs/ki-und-container.md): Ollama, Modelle, Docker/Podman, Compose-Stacks
 - [Flatpak und Distrobox](docs/flatpak-und-distrobox.md): Apps aus anderen Quellen, Container mit anderen Distributionen
 - [ARM und Raspberry Pi](docs/arm-und-raspberry-pi.md): Plattformen, Disk-Images, Voraussetzungen
+- [CMF Phone 1](docs/cmf-phone1.md): Telefon-Image bauen, flashen, zweite Stufe
+- [Nothing-Desktop](docs/nothing-desktop.md): Wie nothing-de beim Bauen entsteht
 - [Projektdatei (JSON)](docs/projektdatei.md): alle Einstellungen
 - [Fehlerbehebung](docs/fehlerbehebung.md)
 - [Änderungen](CHANGELOG.md)
