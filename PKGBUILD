@@ -8,6 +8,9 @@ url="https://github.com/bonbon08/distro-builder"
 license=('MIT')
 depends=('gtk4' 'libadwaita' 'archiso' 'polkit' 'pacman' 'gcc-libs' 'glibc')
 makedepends=('cargo')
+# makepkg's default LTO makes the C/asm objects of `ring` LTO bitcode, which
+# the Rust linker cannot resolve (undefined ring_core_* symbols).
+options=('!lto')
 optdepends=('skopeo: Container-Images in die ISO packen'
             'docker: Alternative zu skopeo für Container-Images'
             'qemu-desktop: fertige ISO in einer VM testen'
